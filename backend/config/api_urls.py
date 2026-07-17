@@ -23,6 +23,7 @@ from apps.crm.views import (
     ClientNoteViewSet,
     ClientViewSet,
 )
+from apps.invoicing.views import InvoiceViewSet, OpenTimeEntriesView
 from apps.projects.views import (
     BoardViewSet,
     ProjectPhaseViewSet,
@@ -53,6 +54,9 @@ router.register("task-checklist", TaskChecklistItemViewSet, basename="task-check
 # Time tracking
 router.register("service-types", ServiceTypeViewSet, basename="service-type")
 router.register("time-entries", TimeEntryViewSet, basename="time-entry")
+# Invoicing
+router.register("invoices", InvoiceViewSet, basename="invoice")
+router.register("open-entries", OpenTimeEntriesView, basename="open-entry")
 
 auth_patterns = [
     path("csrf", CsrfView.as_view(), name="csrf"),
