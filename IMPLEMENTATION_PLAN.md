@@ -4,14 +4,23 @@
 > CRM, projects, sprints, time tracking, invoicing, Lexware Office, optional Clockodo,
 > appointments, revenue analysis, and tax/reserve forecasting in one application.
 
-**Status legend:** ✅ done · 🚧 in progress · ⬜ planned
+**Status legend:** ✅ done · 🟡 core delivered, full scope pending · 🚧 in progress · ⬜ planned
 
 | Phase | Scope | Status |
 | --- | --- | --- |
 | 0 | Repo analysis, planning docs, scaffold, auth, workspaces, dark UI shell | ✅ |
-| 1 | CRM: clients, contacts, notes, activities, client dashboard | ⬜ |
-| 2 | Projects, phases, boards, sprints, tasks, kanban, task drawer | ⬜ |
-| 3 | Internal time tracking (fully Clockodo-independent) | ⬜ |
+| 1 | CRM: clients, contacts, notes, activities, client dashboard | 🟡 |
+| 2 | Projects, phases, boards, sprints, tasks, kanban, task drawer | 🟡 |
+| 3 | Internal time tracking (fully Clockodo-independent) | 🟡 |
+
+**🟡 delivered so far (phases 1–3):** full data layer + API with tests, demo seeds, and the
+reference-design UI: grouped client tables + client dashboard tabs, kanban with persisted
+drag-and-drop + deep-linkable task drawer, table view, week-based time tracking with timer
+(DB-enforced single running timer), manual entries, rounding, billing-status lifecycle, global
+timer widget, My-Tasks buckets.
+**Still open for the full phase scope:** client card view + bulk actions (P1); subtasks UI,
+dependencies, timeline/gantt, custom fields, saved views (P2); favourites, overlap warning,
+PDF/CSV export, change log (P3). Tracked per phase below.
 | 4 | Clockodo integration (optional provider) | ⬜ |
 | 5 | Lexware Office integration + invoice workflow | ⬜ |
 | 6 | Finance dashboard + tax/reserve forecast | ⬜ |
