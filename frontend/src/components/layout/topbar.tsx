@@ -1,9 +1,9 @@
 'use client';
 
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Bell, LogOut, Menu, Search, User as UserIcon } from 'lucide-react';
-import Link from 'next/link';
+import { LogOut, Menu, Search } from 'lucide-react';
 
+import { TimerWidget } from '@/components/timer/timer-widget';
 import { Button } from '@/components/ui/button';
 import { useLogout, useSession } from '@/lib/session';
 import { cn, colorFromId, GROUP_COLORS } from '@/lib/utils';
@@ -50,11 +50,7 @@ export function Topbar({
 
       <div className="flex-1" />
 
-      <Button variant="ghost" size="icon" aria-label="Benachrichtigungen" asChild>
-        <Link href="/notifications">
-          <Bell aria-hidden />
-        </Link>
-      </Button>
+      <TimerWidget />
 
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
@@ -84,16 +80,6 @@ export function Topbar({
                 {user?.email}
               </div>
             </div>
-            <DropdownMenu.Separator className="my-1 h-px bg-[var(--color-line)]" />
-            <DropdownMenu.Item asChild>
-              <Link
-                href="/settings/profile"
-                className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-xs)] px-2 py-1.5 text-[length:var(--text-sm)] outline-none data-[highlighted]:bg-[var(--color-panel)]"
-              >
-                <UserIcon className="size-3.5" aria-hidden />
-                Profil
-              </Link>
-            </DropdownMenu.Item>
             <DropdownMenu.Separator className="my-1 h-px bg-[var(--color-line)]" />
             <DropdownMenu.Item
               onSelect={() => logout.mutate()}
