@@ -15,6 +15,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
+from corsheaders.defaults import default_headers
 from environs import Env
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -257,6 +258,20 @@ CSRF_COOKIE_SAMESITE = "Lax"
 # ---------------------------------------------------------------------------
 CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", ["http://localhost:3000"])
 CORS_ALLOW_CREDENTIALS = True
+
+# django-cors-headers ships a fixed default allow-list that does NOT include our
+# custom headers. Any non-simple header the SPA sends must be listed here or the
+# browser's preflight will succeed while the real request is blocked with an
+# opaque net::ERR_FAILED — invisible to curl, which never preflights.
+CORS_ALLOW_HEADERS = (
+    *default_headers,
+    "x-workspace-id",  # active workspace (apps.accounts.permissions.WORKSPACE_HEADER)
+    "x-request-id",  # client-supplied correlation id
+)
+
+# Let the SPA read the correlation id off a response so it can be quoted in a
+# bug report. Response headers are otherwise hidden from JS cross-origin.
+CORS_EXPOSE_HEADERS = ["X-Request-ID"]
 
 # ---------------------------------------------------------------------------
 # DRF

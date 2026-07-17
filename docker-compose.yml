@@ -16,11 +16,15 @@ x-backend-env: &backend-env
   CELERY_BROKER_URL: redis://redis:6379/1
   SECRET_KEY: ${SECRET_KEY:-django-insecure-dev-only-key-change-me}
   APP_ENV: ${APP_ENV:-development}
-  APP_URL: ${APP_URL:-http://localhost:3000}
-  API_URL: ${API_URL:-http://localhost:8000}
+  # Derived from the published ports so that changing BACKEND_PORT/FRONTEND_PORT
+  # (needed whenever 8000/3000 are already taken on the host) cannot leave the
+  # browser calling a port nothing is listening on. Set APP_URL/API_URL
+  # explicitly only when running behind a proxy or a real domain.
+  APP_URL: ${APP_URL:-http://localhost:${FRONTEND_PORT:-3000}}
+  API_URL: ${API_URL:-http://localhost:${BACKEND_PORT:-8000}}
   ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,backend,0.0.0.0}
-  CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://localhost:3000}
-  CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+  CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://localhost:${FRONTEND_PORT:-3000}}
+  CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:${FRONTEND_PORT:-3000}}
   TIME_ZONE: ${TIME_ZONE:-Europe/Berlin}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
   # Integrations default to OFF: the stack must boot with zero external credentials.
@@ -202,8 +206,9 @@ services:
       target: dev
     command: npm run dev
     environment:
-      # Browser-facing: must be reachable from the host, not the compose network.
-      NEXT_PUBLIC_API_URL: ${API_URL:-http://localhost:8000}
+      # Browser-facing: must be reachable from the *host*, so it uses the
+      # published port, not the in-network one.
+      NEXT_PUBLIC_API_URL: ${API_URL:-http://localhost:${BACKEND_PORT:-8000}}
       # Server-side (SSR) calls stay inside the compose network.
       INTERNAL_API_URL: http://backend:8000
       NODE_ENV: development
