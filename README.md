@@ -79,7 +79,7 @@ make bash    # shell in backend    make schema  # write the OpenAPI schema
 ```
 
 ---
-
+ö
 ## Documentation
 
 | Document | What's in it |
