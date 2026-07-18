@@ -1,11 +1,52 @@
-import { ComingSoon } from '@/components/ui/coming-soon';
+'use client';
 
-export default function Page() {
+import { PageHeader } from '@/components/layout/app-shell';
+import { CompanyTab } from '@/components/settings/company-tab';
+import { IntegrationsTab } from '@/components/settings/integrations-tab';
+import { ServiceTypesTab } from '@/components/settings/service-types-tab';
+import { TaxProfileTab } from '@/components/settings/tax-profile-tab';
+import { TeamTab } from '@/components/settings/team-tab';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { usePermissions } from '@/lib/session';
+
+export default function SettingsPage() {
+  const permissions = usePermissions();
+
   return (
-    <ComingSoon
-      title="Einstellungen"
-      phase="Phase 8"
-      description="Unternehmensprofil, Leistungsarten, Rundung, Steuerprofil und das Integrationscenter."
-    />
+    <>
+      <PageHeader title="Einstellungen">
+        <Tabs defaultValue="company">
+          <TabsList className="border-b-0 pt-2">
+            <TabsTrigger value="company">Unternehmen</TabsTrigger>
+            <TabsTrigger value="service-types">Leistungsarten</TabsTrigger>
+            <TabsTrigger value="tax">Steuerprofil</TabsTrigger>
+            <TabsTrigger value="team">Team</TabsTrigger>
+            {permissions.can_manage_integrations ? (
+              <TabsTrigger value="integrations">Integrationen</TabsTrigger>
+            ) : null}
+          </TabsList>
+
+          <div className="-mx-5 border-t border-[var(--color-line)] bg-[var(--color-canvas)] px-5 pt-5 pb-5">
+            <TabsContent value="company">
+              <CompanyTab />
+            </TabsContent>
+            <TabsContent value="service-types">
+              <ServiceTypesTab />
+            </TabsContent>
+            <TabsContent value="tax">
+              <TaxProfileTab />
+            </TabsContent>
+            <TabsContent value="team">
+              <TeamTab />
+            </TabsContent>
+            {permissions.can_manage_integrations ? (
+              <TabsContent value="integrations">
+                <IntegrationsTab />
+              </TabsContent>
+            ) : null}
+          </div>
+        </Tabs>
+      </PageHeader>
+    </>
   );
 }

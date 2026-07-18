@@ -30,6 +30,11 @@ from apps.finance.views import (
     ReserveView,
     TaxProfileViewSet,
 )
+from apps.integrations.views import (
+    IntegrationStatusView,
+    SyncConflictViewSet,
+    TestConnectionView,
+)
 from apps.invoicing.views import InvoiceViewSet, OpenTimeEntriesView
 from apps.projects.views import (
     BoardViewSet,
@@ -71,6 +76,8 @@ router.register("reserve-snapshots", ReserveSnapshotViewSet, basename="reserve-s
 # Scheduling & files
 router.register("appointments", AppointmentViewSet, basename="appointment")
 router.register("files", StoredFileViewSet, basename="file")
+# Integrations
+router.register("sync-conflicts", SyncConflictViewSet, basename="sync-conflict")
 
 auth_patterns = [
     path("csrf", CsrfView.as_view(), name="csrf"),
@@ -86,8 +93,14 @@ finance_patterns = [
     path("reserve", ReserveView.as_view(), name="reserve"),
 ]
 
+integration_patterns = [
+    path("status", IntegrationStatusView.as_view(), name="status"),
+    path("<str:provider>/test", TestConnectionView.as_view(), name="test"),
+]
+
 urlpatterns = [
     path("auth/", include((auth_patterns, "auth"))),
     path("finance/", include((finance_patterns, "finance"))),
+    path("integrations/", include((integration_patterns, "integrations"))),
     path("", include(router.urls)),
 ]
