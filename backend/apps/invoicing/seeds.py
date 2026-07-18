@@ -18,9 +18,7 @@ def seed_invoicing(ctx: SeedContext) -> str:
     # Compose a draft for the client with the most open billable hours, so the
     # invoices page and the client's Rechnungen tab both show something real.
     client = (
-        Client.objects.filter(workspace=ctx.workspace, status="active")
-        .order_by("name")
-        .first()
+        Client.objects.filter(workspace=ctx.workspace, status="active").order_by("name").first()
     )
     if client is None:
         return "keine Kunden — übersprungen"

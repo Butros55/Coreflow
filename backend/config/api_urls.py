@@ -23,6 +23,12 @@ from apps.crm.views import (
     ClientNoteViewSet,
     ClientViewSet,
 )
+from apps.finance.views import (
+    FinanceDashboardView,
+    ReserveSnapshotViewSet,
+    ReserveView,
+    TaxProfileViewSet,
+)
 from apps.invoicing.views import InvoiceViewSet, OpenTimeEntriesView
 from apps.projects.views import (
     BoardViewSet,
@@ -57,6 +63,9 @@ router.register("time-entries", TimeEntryViewSet, basename="time-entry")
 # Invoicing
 router.register("invoices", InvoiceViewSet, basename="invoice")
 router.register("open-entries", OpenTimeEntriesView, basename="open-entry")
+# Finance
+router.register("tax-profiles", TaxProfileViewSet, basename="tax-profile")
+router.register("reserve-snapshots", ReserveSnapshotViewSet, basename="reserve-snapshot")
 
 auth_patterns = [
     path("csrf", CsrfView.as_view(), name="csrf"),
@@ -67,7 +76,13 @@ auth_patterns = [
     path("me", CurrentUserView.as_view(), name="current-user"),
 ]
 
+finance_patterns = [
+    path("dashboard", FinanceDashboardView.as_view(), name="dashboard"),
+    path("reserve", ReserveView.as_view(), name="reserve"),
+]
+
 urlpatterns = [
     path("auth/", include((auth_patterns, "auth"))),
+    path("finance/", include((finance_patterns, "finance"))),
     path("", include(router.urls)),
 ]
