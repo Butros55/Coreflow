@@ -1,12 +1,13 @@
 'use client';
 
-import { ArrowLeft, Info, Send, Trash2 } from 'lucide-react';
+import { FileText, ArrowLeft, Info, Send, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import * as React from 'react';
 import { toast } from 'sonner';
 
 import { PageHeader } from '@/components/layout/app-shell';
+import { api } from '@/lib/api/client';
 import { DetailErrorState } from '@/components/ui/detail-error';
 import { InvoiceStatusBadge } from '@/components/invoices/invoice-status-badge';
 import { Button } from '@/components/ui/button';
@@ -61,6 +62,7 @@ export default function InvoiceDetailPage() {
         actions={
           <div className="flex items-center gap-2">
             <InvoiceStatusBadge status={invoice.status} />
+            <PdfButton invoiceId={invoice.id} status={invoice.status} />
             <Button variant="ghost" size="sm" asChild>
               <Link href="/invoices">
                 <ArrowLeft aria-hidden /> Alle Rechnungen
@@ -400,5 +402,33 @@ function ActionsPanel({
         </DialogContent>
       </Dialog>
     </Panel>
+  );
+}
+
+function PdfButton({ invoiceId, status }: { invoiceId: string; status: Invoice['status'] }) {
+  const [busy, setBusy] = React.useState(false);
+  // Only vouchers that exist in Lexware have a rendered document.
+  if (!['draft_remote', 'open', 'overdue', 'paid', 'voided'].includes(status)) return null;
+
+  const open = async () => {
+    setBusy(true);
+    try {
+      // fetch → blob → objectURL: a plain window.open cannot send the
+      // workspace header, so the request goes through the API client.
+      const blob = await api.get<Blob>(`/invoices/${invoiceId}/pdf/`);
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'PDF konnte nicht geladen werden.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Button variant="secondary" size="sm" loading={busy} onClick={open}>
+      <FileText aria-hidden /> PDF anzeigen
+    </Button>
   );
 }
