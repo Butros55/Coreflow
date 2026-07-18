@@ -8,6 +8,7 @@ rejects a payload that includes them.
 
 from __future__ import annotations
 
+import datetime as dt
 from decimal import Decimal
 from typing import Any
 
@@ -152,6 +153,14 @@ def apply_lexware_invoice(invoice: Invoice, remote: dict[str, Any]) -> None:
         invoice.invoice_number = remote["voucherNumber"]
     if remote.get("version") is not None:
         invoice.lexware_version = remote["version"]
+
+    # Lexware owns the voucher date; without this mirror a finalised invoice
+    # kept a NULL invoice_date and silently dropped out of the revenue KPIs.
+    if remote.get("voucherDate"):
+        try:
+            invoice.invoice_date = dt.date.fromisoformat(str(remote["voucherDate"])[:10])
+        except ValueError:
+            pass
 
     total = remote.get("totalPrice") or {}
     if total.get("totalNetAmount") is not None:
