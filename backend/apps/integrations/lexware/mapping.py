@@ -93,7 +93,11 @@ def _line_item(line: Any, tax_type: str) -> dict[str, Any]:
     """A 'custom' line item — we do not reference Lexware articles."""
     unit_price: dict[str, Any] = {
         "currency": "EUR",
-        "taxRatePercentage": _num(line.tax_rate),
+        # Vat-free invoices REQUIRE 0 here (lexware.md §4.4) — enforced at the
+        # wire regardless of what the stored line carries, because a draft
+        # switched to vatfree after composition may still hold stale rates and
+        # Lexware then rejects with "line items … must not contain taxes".
+        "taxRatePercentage": 0 if tax_type == TaxType.VATFREE else _num(line.tax_rate),
     }
     # For net invoices Lexware wants netAmount; for gross, grossAmount.
     if tax_type == TaxType.GROSS:

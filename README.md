@@ -70,6 +70,21 @@ FRONTEND_PORT=3000
 Leave `APP_URL` and `API_URL` **empty**: Compose derives them from these ports, so the browser, the
 CSRF allowlist and CORS all stay consistent automatically.
 
+### Productive start — no demo data
+
+`make setup` loads demo data for exploring. For real use (e.g. against your own Lexware account):
+
+```bash
+make up && make migrate                    # start the stack, no seeding
+make bootstrap EMAIL=you@example.com NAME="Meine Firma"        # add SMALL_BUSINESS=1 for §19 UStG
+```
+
+That creates your user (password is generated and printed once — or pass `PASSWORD=...`), the
+workspace, the current tax profile and the tax rulesets — nothing else. Then log in, complete the
+company profile under *Einstellungen*, set `LEXWARE_ENABLED=true` + `LEXWARE_API_KEY` in `.env`,
+restart (`make up`), and run the connection test under *Einstellungen → Integrationen*. Demo data
+can always be added later with `make seed` (separate workspace) or removed with `make seed-reset`.
+
 ---
 
 ## Common commands

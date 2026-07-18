@@ -262,7 +262,11 @@ def _resolve_tax(
 @transaction.atomic
 def cancel_invoice(invoice: Invoice) -> None:
     """Void a local/draft invoice and release its time entries back to ``open``."""
-    if invoice.status not in (InvoiceStatus.DRAFT_LOCAL, InvoiceStatus.DRAFT_REMOTE):
+    if invoice.status not in (
+        InvoiceStatus.DRAFT_LOCAL,
+        InvoiceStatus.DRAFT_REMOTE,
+        InvoiceStatus.SEND_PENDING,
+    ):
         raise InvoiceCompositionError(
             "Nur Entwürfe können hier storniert werden. Finalisierte Rechnungen "
             "werden in Lexware storniert."

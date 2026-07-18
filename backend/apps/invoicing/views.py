@@ -110,9 +110,12 @@ class InvoiceViewSet(WorkspaceScopedViewSet):
             if "tax_type" in data:
                 from apps.invoicing.models import TaxType
 
-                invoice.tax_rate = (
-                    invoice.tax_rate if data["tax_type"] != TaxType.VATFREE else money("0")
-                )
+                if data["tax_type"] == TaxType.VATFREE:
+                    invoice.tax_rate = money("0")
+                elif invoice.tax_rate == 0:
+                    # Coming back FROM vatfree: 0% on a taxable invoice is
+                    # almost certainly stale — restore the standard rate.
+                    invoice.tax_rate = money("19.00")
 
             if "lines" in data:
                 # Replace lines wholesale — simplest correct semantics for an edit.
@@ -140,6 +143,16 @@ class InvoiceViewSet(WorkspaceScopedViewSet):
                 for line_id, line in existing.items():
                     if line_id not in seen:
                         line.delete()
+
+            # Keep every line's tax rate in lockstep with the invoice. Totals
+            # are computed from the invoice-level rate anyway, and Lexware
+            # rejects vatfree invoices whose lines still carry a tax rate —
+            # exactly what happened when a draft was switched to vatfree after
+            # composition.
+            from apps.invoicing.models import TaxType as _TaxType
+
+            line_rate = money("0") if invoice.tax_type == _TaxType.VATFREE else invoice.tax_rate
+            invoice.lines.update(tax_rate=line_rate)
 
             invoice.recompute_totals()
             invoice.save()
@@ -205,7 +218,9 @@ class InvoiceViewSet(WorkspaceScopedViewSet):
         from apps.integrations.lexware.invoicing import send_invoice_to_lexware
 
         invoice = self.get_object()
-        if invoice.status != InvoiceStatus.DRAFT_LOCAL:
+        # SEND_PENDING is retryable: a stuck transfer either reconciles (the
+        # voucher exists remotely) or is attempted again (it never was).
+        if invoice.status not in (InvoiceStatus.DRAFT_LOCAL, InvoiceStatus.SEND_PENDING):
             return Response(
                 {
                     "error": {

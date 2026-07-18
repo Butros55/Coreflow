@@ -134,3 +134,35 @@ class TestComputeTaxes:
             + result.safety_buffer
         )
         assert result.recommended_reserve == expected.quantize(Decimal("0.01"))
+
+
+class TestRevenueBreakdown:
+    """Both report cards must aggregate the SAME base — billed time entries."""
+
+    def test_by_client_and_by_service_share_one_source(self, workspace, user) -> None:  # type: ignore[no-untyped-def]
+        from apps.crm.models import Client
+        from apps.finance.services import revenue_breakdown
+        from apps.invoicing.tests.test_invoicing import make_entry
+        from apps.timetracking.models import BillingStatus, ServiceType
+
+        client = Client.objects.create(workspace=workspace, name="Report AG")
+        service = ServiceType.objects.create(workspace=workspace, name="Entwicklung")
+        make_entry(
+            workspace,
+            user,
+            client,
+            hours=2,
+            service=service,
+            billing_status=BillingStatus.BILLED,
+        )
+        # Open (not yet billed) work must not count as revenue in either card.
+        make_entry(workspace, user, client, hours=5, billing_status=BillingStatus.OPEN)
+
+        from django.utils import timezone
+
+        data = revenue_breakdown(workspace, timezone.now().year)
+        assert data["by_client"] == [{"label": "Report AG", "value": "200.00"}]
+        assert data["by_service"] == [{"label": "Entwicklung", "value": "200.00"}]
+        total_client = sum(Decimal(r["value"]) for r in data["by_client"])
+        total_service = sum(Decimal(r["value"]) for r in data["by_service"])
+        assert total_client == total_service

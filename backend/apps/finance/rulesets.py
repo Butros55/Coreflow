@@ -88,3 +88,26 @@ DEFAULT_RULESETS: list[dict[str, Any]] = [
         "sources": _sources(2026, provisional=True),
     },
 ]
+
+
+def install_default_rulesets() -> int:
+    """Install the shipped rulesets idempotently. Returns how many were new.
+
+    Rulesets are global (not workspace-scoped) and versioned; existing rows are
+    never overwritten — corrections ship as a new ``rule_version``.
+    """
+    from apps.finance.models import TaxRuleSet
+
+    installed = 0
+    for spec in DEFAULT_RULESETS:
+        _, created = TaxRuleSet.objects.get_or_create(
+            tax_year=spec["tax_year"],
+            rule_version=spec["rule_version"],
+            defaults={
+                "valid_from": spec["valid_from"],
+                "config": spec["config"],
+                "sources": spec["sources"],
+            },
+        )
+        installed += int(created)
+    return installed

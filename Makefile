@@ -115,6 +115,11 @@ seed: ## Load demo data (idempotent)
 seed-reset: ## Wipe and reload demo data
 	$(BACKEND) python manage.py seed_demo --reset
 
+.PHONY: bootstrap
+bootstrap: ## Productive user+workspace, NO demo data: make bootstrap EMAIL=you@x.de NAME="Meine Firma"
+	@if [ -z "$(EMAIL)" ] || [ -z "$(NAME)" ]; then echo 'Usage: make bootstrap EMAIL=you@x.de NAME="Meine Firma" [PASSWORD=...] [SMALL_BUSINESS=1]'; exit 1; fi
+	$(BACKEND) python manage.py bootstrap --email "$(EMAIL)" --workspace-name "$(NAME)" $(if $(PASSWORD),--password "$(PASSWORD)") $(if $(SMALL_BUSINESS),--small-business)
+
 .PHONY: superuser
 superuser: ## Create a Django superuser
 	$(COMPOSE) exec backend python manage.py createsuperuser

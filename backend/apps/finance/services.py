@@ -119,7 +119,15 @@ def compute_kpis(workspace: Any, today: date | None = None) -> FinanceKPIs:
 
 
 def revenue_breakdown(workspace: Any, year: int) -> dict[str, list[dict[str, Any]]]:
-    """Revenue by client and by service type (accrual, current year)."""
+    """Billed work by client and by service type — one source for both.
+
+    Both cards deliberately aggregate the SAME base (billed time entries of
+    the year) so they can never contradict each other. Earlier the client
+    card used finalised invoices while the service card used billed entries —
+    with only local drafts around, one showed data and the other "Keine
+    Daten", which read as a bug (and was one). Invoice-based receivables live
+    on the finance dashboard, where they belong.
+    """
     year_start, year_end = _year_bounds(year)
     billed_entries = TimeEntry.objects.filter(
         workspace=workspace,
@@ -129,13 +137,8 @@ def revenue_breakdown(workspace: Any, year: int) -> dict[str, list[dict[str, Any
     )
 
     by_client = (
-        Invoice.objects.filter(
-            workspace=workspace,
-            status__in=[InvoiceStatus.OPEN, InvoiceStatus.PAID, InvoiceStatus.OVERDUE],
-            invoice_date__gte=year_start,
-        )
-        .values("client__name")
-        .annotate(total=Sum("net_amount"))
+        billed_entries.values("client__name")
+        .annotate(total=Sum("computed_amount"))
         .order_by("-total")
     )
     by_service = (

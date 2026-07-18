@@ -36,7 +36,7 @@ export default function InvoicesPage() {
     .filter((inv) => inv.status === 'open' || inv.status === 'overdue')
     .reduce((sum, inv) => sum + Number(inv.open_amount), 0);
   const draftTotal = invoices
-    .filter((inv) => ['draft_local', 'draft_remote'].includes(inv.status))
+    .filter((inv) => ['draft_local', 'draft_remote', 'send_pending'].includes(inv.status))
     .reduce((sum, inv) => sum + Number(inv.gross_amount), 0);
   const thisYear = String(new Date().getFullYear());
   const paidThisYear = invoices
