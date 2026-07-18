@@ -121,11 +121,17 @@ export function useTestConnection() {
 export function useTriggerSync() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (provider: 'lexware' | 'clockodo') =>
-      api.post<{ ok: boolean; queued: boolean }>(`/integrations/${provider}/sync`),
+    mutationFn: ({ provider, full }: { provider: 'lexware' | 'clockodo'; full?: boolean }) =>
+      api.post<{ ok: boolean; queued: boolean }>(
+        `/integrations/${provider}/sync`,
+        full ? { full: true } : undefined,
+      ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['integration-status'] });
       queryClient.invalidateQueries({ queryKey: ['sync-conflicts'] });
+      // A full import creates clients and invoices — refresh those lists too.
+      queryClient.invalidateQueries({ queryKey: ['clients'] });
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
     },
   });
 }

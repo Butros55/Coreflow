@@ -262,13 +262,26 @@ class TriggerSyncView(APIView):
 
         if provider == Provider.LEXWARE:
             from apps.integrations.lexware.client import is_lexware_enabled
-            from apps.integrations.lexware.tasks import sync_lexware_incremental
+            from apps.integrations.lexware.tasks import (
+                lexware_full_import,
+                sync_lexware_incremental,
+            )
 
             if not is_lexware_enabled():
                 return TestConnectionView._disabled("Lexware")
-            sync_lexware_incremental.delay()
+            full = bool(request.data.get("full"))
+            if full:
+                # Full import: all contacts + invoices, idempotent, explicitly
+                # confirmed by the user in the UI dialog.
+                lexware_full_import.delay(str(workspace.pk), str(user.pk))
+            else:
+                sync_lexware_incremental.delay()
             record_audit(
-                request, "integration.sync_triggered", workspace=workspace, provider=provider
+                request,
+                "integration.sync_triggered",
+                workspace=workspace,
+                provider=provider,
+                mode="full_import" if full else "incremental",
             )
             return Response({"ok": True, "queued": True}, status=http_status.HTTP_202_ACCEPTED)
 

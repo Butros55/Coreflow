@@ -3,6 +3,7 @@
 import {
   AlertTriangle,
   ArrowDownUp,
+  CloudDownload,
   CheckCircle2,
   Info,
   Plug,
@@ -11,7 +12,10 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
+import * as React from 'react';
+
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Panel, PanelBody, PanelHeader, PanelTitle } from '@/components/ui/panel';
 import { StatusTint } from '@/components/ui/status-pill';
 import {
@@ -72,6 +76,7 @@ function ProviderCard({
   const meta = PROVIDER_META[provider];
   const test = useTestConnection();
   const sync = useTriggerSync();
+  const [importOpen, setImportOpen] = React.useState(false);
 
   const stateLabel = !status.enabled
     ? { tone: 'hold' as const, text: 'Deaktiviert', icon: XCircle }
@@ -163,18 +168,28 @@ function ProviderCard({
                 <Button
                   variant="secondary"
                   size="sm"
-                  loading={sync.isPending && sync.variables === provider}
+                  loading={
+                    sync.isPending && sync.variables?.provider === provider && !sync.variables?.full
+                  }
                   onClick={() =>
-                    sync.mutate(provider, {
-                      onSuccess: () =>
-                        toast.success(
-                          'Synchronisierung gestartet — Ergebnisse erscheinen hier in Kürze.',
-                        ),
-                      onError: (error) => toast.error(error.message),
-                    })
+                    sync.mutate(
+                      { provider },
+                      {
+                        onSuccess: () =>
+                          toast.success(
+                            'Synchronisierung gestartet — Ergebnisse erscheinen hier in Kürze.',
+                          ),
+                        onError: (error) => toast.error(error.message),
+                      },
+                    )
                   }
                 >
                   <ArrowDownUp aria-hidden /> Jetzt synchronisieren
+                </Button>
+              ) : null}
+              {provider === 'lexware' && status.connected ? (
+                <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}>
+                  <CloudDownload aria-hidden /> Alle Daten importieren
                 </Button>
               ) : null}
               {status.webhook_configured ? (
@@ -210,6 +225,65 @@ function ProviderCard({
           {meta.note}
         </p>
       </PanelBody>
+
+      {provider === 'lexware' ? (
+        <Dialog open={importOpen} onOpenChange={setImportOpen}>
+          <DialogContent title="Alle Daten aus Lexware importieren?">
+            <div className="space-y-3 text-[length:var(--text-sm)] text-[var(--color-ink-muted)]">
+              <p>
+                Coreflow lädt <strong>alle Kunden (Kontakte)</strong> und{' '}
+                <strong>alle Rechnungen</strong> aus deinem Lexware-Konto und legt sie hier korrekt
+                verknüpft an — jede Rechnung hängt am richtigen Kunden.
+              </p>
+              <ul className="list-disc space-y-1 pl-5 text-[length:var(--text-xs)]">
+                <li>
+                  Bereits vorhandene Datensätze werden erkannt (Abgleich über Verknüpfung und Namen)
+                  — es entstehen <strong>keine Duplikate</strong>. Der Import kann jederzeit
+                  wiederholt werden.
+                </li>
+                <li>
+                  Bestehende Kunden werden <strong>nicht überschrieben</strong> — Lexware-Daten
+                  füllen nur neue Datensätze.
+                </li>
+                <li>
+                  Projekte existieren in Lexware Office nicht und bleiben unberührt; Belege aus
+                  Einkauf/Ausgaben folgen mit dem Finanzmodul.
+                </li>
+                <li>
+                  Je nach Datenmenge dauert der Import einige Minuten (Lexware erlaubt 2
+                  Anfragen/Sekunde). Der Fortschritt erscheint in dieser Karte.
+                </li>
+              </ul>
+              <div className="flex justify-end gap-2 pt-1">
+                <Button type="button" variant="ghost" onClick={() => setImportOpen(false)}>
+                  Abbrechen
+                </Button>
+                <Button
+                  type="button"
+                  variant="primary"
+                  loading={sync.isPending && sync.variables?.full === true}
+                  onClick={() =>
+                    sync.mutate(
+                      { provider: 'lexware', full: true },
+                      {
+                        onSuccess: () => {
+                          toast.success(
+                            'Import gestartet — Kunden und Rechnungen erscheinen in Kürze.',
+                          );
+                          setImportOpen(false);
+                        },
+                        onError: (error) => toast.error(error.message),
+                      },
+                    )
+                  }
+                >
+                  Import starten
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      ) : null}
     </Panel>
   );
 }

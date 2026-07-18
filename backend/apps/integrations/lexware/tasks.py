@@ -223,3 +223,24 @@ def _apply_payment_state(client: Any, invoice: Any, external_id: str) -> None:
             invoice.paid_at = dt.date.fromisoformat(str(paid_date)[:10])
         except ValueError:
             logger.warning("lexware_paid_date_unparseable", value=str(paid_date))
+
+
+@shared_task(name="apps.integrations.lexware.tasks.lexware_full_import")
+def lexware_full_import(workspace_id: str, user_id: str | None = None) -> dict[str, Any]:
+    """Manual full import: all Lexware contacts + invoices into the local UI."""
+    from apps.accounts.models import User, Workspace
+    from apps.integrations.lexware.client import LexwareClient, is_lexware_enabled
+    from apps.integrations.lexware.sync import LexwareImport
+
+    if not is_lexware_enabled():
+        return {"status": "disabled"}
+    workspace = Workspace.objects.filter(pk=workspace_id).first()
+    if workspace is None:
+        return {"status": "unknown_workspace"}
+    user = User.objects.filter(pk=user_id).first() if user_id else None
+
+    with LexwareClient() as client_conn:
+        jobs = LexwareImport(workspace, trigger="manual", triggered_by=user).full_import(
+            client_conn
+        )
+    return {"status": "ok", "jobs": {job.resource_type: job.status for job in jobs}}
