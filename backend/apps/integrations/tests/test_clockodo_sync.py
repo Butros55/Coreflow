@@ -899,7 +899,7 @@ class TestLexwareIncrementalSync:
         )
 
         summary = sync_invoice_statuses(workspace)
-        assert summary == {"updated": 1, "failed": 0}
+        assert summary == {"updated": 1, "deleted_remotely": 0, "failed": 0}
 
         invoice.refresh_from_db()
         assert invoice.status == InvoiceStatus.PAID

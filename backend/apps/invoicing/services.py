@@ -259,6 +259,19 @@ def _resolve_tax(
     return TaxType.NET, Decimal("19.00")
 
 
+def release_invoice_entries(invoice: Invoice) -> None:
+    """Free the invoice's time entries for re-billing and void the invoice.
+
+    Shared by the local cancel action and the Lexware mirror (a draft deleted
+    or a voucher voided remotely means the hours are billable again).
+    """
+    entry_ids = list(invoice.invoice_time_entries.values_list("time_entry_id", flat=True))
+    TimeEntry.objects.filter(pk__in=entry_ids).update(billing_status=BillingStatus.OPEN)
+    invoice.invoice_time_entries.update(invoice_cancelled=True)
+    invoice.status = InvoiceStatus.VOIDED
+    invoice.save(update_fields=["status", "updated_at"])
+
+
 @transaction.atomic
 def cancel_invoice(invoice: Invoice) -> None:
     """Void a local/draft invoice and release its time entries back to ``open``."""
@@ -271,11 +284,7 @@ def cancel_invoice(invoice: Invoice) -> None:
             "Nur Entwürfe können hier storniert werden. Finalisierte Rechnungen "
             "werden in Lexware storniert."
         )
-    entry_ids = list(invoice.invoice_time_entries.values_list("time_entry_id", flat=True))
-    TimeEntry.objects.filter(pk__in=entry_ids).update(billing_status=BillingStatus.OPEN)
-    invoice.invoice_time_entries.update(invoice_cancelled=True)
-    invoice.status = InvoiceStatus.VOIDED
-    invoice.save(update_fields=["status", "updated_at"])
+    release_invoice_entries(invoice)
 
 
 @transaction.atomic

@@ -41,14 +41,21 @@ def sync_lexware_incremental() -> dict[str, Any]:
 def sync_invoice_statuses(workspace: Any) -> dict[str, int] | None:
     """Pull current voucher state for every linked, non-final invoice.
 
-    Also settles the paperwork trail: an invoice that turns OPEN or PAID marks
-    its time entries billed — which in turn pushes ``billable=2`` to Clockodo
-    for entries that originated there.
+    Mirrors three kinds of remote change:
+    * status/number/payment updates (an invoice that turns OPEN or PAID marks
+      its entries billed — which pushes ``billable=2`` to Clockodo),
+    * a voucher **voided** in Lexware → local VOIDED, hours released,
+    * a draft **deleted** in Lexware (GET → 404) → local VOIDED, hours
+      released. A 404 on a *finalised* invoice is anomalous (Lexware does not
+      delete finalised vouchers) and becomes a SyncConflict instead of an
+      automatic change — billed data is under legal hold.
     """
+    from apps.core.audit import record_audit
+    from apps.integrations.base import ProviderHTTPError
     from apps.integrations.lexware.client import LexwareClient
     from apps.integrations.lexware.mapping import apply_lexware_invoice
     from apps.invoicing.models import Invoice, InvoiceStatus
-    from apps.invoicing.services import mark_entries_billed
+    from apps.invoicing.services import mark_entries_billed, release_invoice_entries
 
     links = ExternalObjectLink.objects.filter(
         workspace=workspace,
@@ -63,7 +70,11 @@ def sync_invoice_statuses(workspace: Any) -> dict[str, int] | None:
     invoices = Invoice.objects.filter(
         workspace=workspace,
         pk__in=by_local_id.keys(),
-        status__in=[InvoiceStatus.DRAFT_REMOTE, InvoiceStatus.OPEN],
+        status__in=[
+            InvoiceStatus.DRAFT_REMOTE,
+            InvoiceStatus.OPEN,
+            InvoiceStatus.SEND_PENDING,
+        ],
     )
     if not invoices.exists():
         return None
@@ -77,14 +88,37 @@ def sync_invoice_statuses(workspace: Any) -> dict[str, int] | None:
     )
     job.mark_running()
 
-    updated = skipped = failed = 0
+    updated = deleted_remotely = failed = 0
     with LexwareClient() as client:
         for invoice in invoices:
             job.records_processed += 1
             link = by_local_id[invoice.pk]
             was_billable_settled = invoice.status in {InvoiceStatus.OPEN, InvoiceStatus.PAID}
+            was_voided = invoice.status == InvoiceStatus.VOIDED
             try:
                 remote = client.get_invoice(link.external_id)
+            except ProviderHTTPError as exc:
+                if exc.status_code == 404:
+                    _handle_remote_deletion(workspace, invoice, link, job)
+                    deleted_remotely += 1
+                else:
+                    failed += 1
+                    logger.warning(
+                        "lexware_invoice_refresh_failed",
+                        invoice_id=str(invoice.pk),
+                        error=str(exc),
+                    )
+                continue
+            except Exception as exc:
+                failed += 1
+                logger.warning(
+                    "lexware_invoice_refresh_failed",
+                    invoice_id=str(invoice.pk),
+                    error=str(exc),
+                )
+                continue
+
+            try:
                 apply_lexware_invoice(invoice, remote)
                 _apply_payment_state(client, invoice, link.external_id)
             except Exception as exc:
@@ -100,17 +134,74 @@ def sync_invoice_statuses(workspace: Any) -> dict[str, int] | None:
             invoice.save()
             link.mark_synced({"voucherStatus": invoice.status, "version": invoice.lexware_version})
 
-            now_settled = invoice.status in {InvoiceStatus.OPEN, InvoiceStatus.PAID}
-            if now_settled and not was_billable_settled:
-                mark_entries_billed(invoice)
+            if invoice.status == InvoiceStatus.VOIDED and not was_voided:
+                # Voided in Lexware (Stornorechnung): the hours are billable
+                # again — mirror exactly what a local cancel does.
+                release_invoice_entries(invoice)
+                record_audit(
+                    None,
+                    "invoice.remote_voided",
+                    workspace=workspace,
+                    target=invoice,
+                    summary=invoice.invoice_number or str(invoice.pk),
+                )
+            else:
+                now_settled = invoice.status in {InvoiceStatus.OPEN, InvoiceStatus.PAID}
+                if now_settled and not was_billable_settled:
+                    mark_entries_billed(invoice)
             updated += 1
 
     job.records_updated = updated
-    job.records_skipped = skipped
+    job.records_skipped = deleted_remotely
     job.records_failed = failed
     job.save()
     job.mark_finished(SyncStatus.SUCCESS if failed == 0 else SyncStatus.PARTIAL)
-    return {"updated": updated, "failed": failed}
+    return {"updated": updated, "deleted_remotely": deleted_remotely, "failed": failed}
+
+
+def _handle_remote_deletion(workspace: Any, invoice: Any, link: Any, job: Any) -> None:
+    """The linked voucher is gone from Lexware — mirror the user's action."""
+    from apps.core.audit import record_audit
+    from apps.integrations.models import SyncConflict
+    from apps.invoicing.models import InvoiceStatus
+    from apps.invoicing.services import release_invoice_entries
+
+    link.deleted_remotely = True
+    link.save(update_fields=["deleted_remotely", "updated_at"])
+
+    if invoice.status in (InvoiceStatus.DRAFT_REMOTE, InvoiceStatus.SEND_PENDING):
+        # A deleted draft is a normal user decision: void locally, free the
+        # hours for re-billing, show "Storniert" in the UI.
+        release_invoice_entries(invoice)
+        record_audit(
+            None,
+            "invoice.remote_deleted",
+            workspace=workspace,
+            target=invoice,
+            summary=invoice.invoice_number or str(invoice.pk),
+        )
+        logger.info("lexware_invoice_deleted_remotely", invoice_id=str(invoice.pk))
+        return
+
+    # Finalised invoice vanished: that should not happen — surface it, touch
+    # nothing (legal hold on billed data).
+    SyncConflict.objects.create(
+        workspace=workspace,
+        provider=Provider.LEXWARE,
+        resource_type="invoice",
+        external_id=link.external_id,
+        local_object_type="invoicing.Invoice",
+        local_object_id=invoice.pk,
+        reason="remote_deleted",
+        local_snapshot={
+            "status": invoice.status,
+            "invoice_number": invoice.invoice_number,
+            "gross_amount": str(invoice.gross_amount),
+        },
+        remote_snapshot={},
+        sync_job=job,
+    )
+    logger.warning("lexware_finalised_invoice_missing", invoice_id=str(invoice.pk))
 
 
 def _apply_payment_state(client: Any, invoice: Any, external_id: str) -> None:
