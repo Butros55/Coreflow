@@ -39,6 +39,9 @@ SESSION_ENGINE = "django.contrib.sessions.backends.db"
 
 EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 
+# In-memory storage so uploads never touch the disk during tests. (A too-small
+# FileField max_length once made this look broken; the field is now 500 chars,
+# ample for the nested-UUID key.)
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.InMemoryStorage"},
     "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},

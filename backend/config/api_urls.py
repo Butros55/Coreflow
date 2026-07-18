@@ -23,6 +23,7 @@ from apps.crm.views import (
     ClientNoteViewSet,
     ClientViewSet,
 )
+from apps.files.views import StoredFileViewSet
 from apps.finance.views import (
     FinanceDashboardView,
     ReserveSnapshotViewSet,
@@ -39,6 +40,7 @@ from apps.projects.views import (
     TaskCommentViewSet,
     TaskViewSet,
 )
+from apps.scheduling.views import AppointmentViewSet
 from apps.timetracking.views import ServiceTypeViewSet, TimeEntryViewSet
 
 router = DefaultRouter()
@@ -66,6 +68,9 @@ router.register("open-entries", OpenTimeEntriesView, basename="open-entry")
 # Finance
 router.register("tax-profiles", TaxProfileViewSet, basename="tax-profile")
 router.register("reserve-snapshots", ReserveSnapshotViewSet, basename="reserve-snapshot")
+# Scheduling & files
+router.register("appointments", AppointmentViewSet, basename="appointment")
+router.register("files", StoredFileViewSet, basename="file")
 
 auth_patterns = [
     path("csrf", CsrfView.as_view(), name="csrf"),

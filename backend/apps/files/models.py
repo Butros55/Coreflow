@@ -14,8 +14,15 @@ from apps.core.models import BaseModel, WorkspaceScopedModel
 
 
 def upload_to(instance: StoredFile, filename: str) -> str:
-    """Namespace uploads by workspace so a bucket listing is tenant-partitioned."""
-    return f"workspaces/{instance.workspace_id}/files/{instance.pk}/{filename}"
+    """Namespace uploads by workspace so a bucket listing is tenant-partitioned.
+
+    Uses ``posixpath`` explicitly: object-storage keys use forward slashes, and
+    the default ``os.path.join`` would inject a backslash on a Windows host.
+    """
+    import posixpath
+
+    safe = posixpath.basename(filename.replace("\\", "/"))
+    return posixpath.join("workspaces", str(instance.workspace_id), "files", str(instance.pk), safe)
 
 
 class StoredFile(WorkspaceScopedModel, BaseModel):
@@ -33,7 +40,10 @@ class StoredFile(WorkspaceScopedModel, BaseModel):
     filename = models.CharField(max_length=255)
     content_type = models.CharField(max_length=120, blank=True)
     size_bytes = models.PositiveBigIntegerField(default=0)
-    storage = models.FileField(upload_to=upload_to, blank=True)
+    # max_length well above the default 100: the key is
+    # workspaces/<uuid>/files/<uuid>/<filename> (~110 chars before the name).
+    # Too small a limit makes get_available_name loop and raise.
+    storage = models.FileField(upload_to=upload_to, blank=True, max_length=500)
     checksum = models.CharField(max_length=64, blank=True, help_text=_("sha256, for dedupe."))
     description = models.CharField(max_length=300, blank=True)
     uploaded_by = models.ForeignKey(

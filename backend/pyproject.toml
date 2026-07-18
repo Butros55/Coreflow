@@ -143,11 +143,21 @@ ignore_missing_imports = true
 # django-filter has no stubs; FilterSet therefore types as Any, and the modules
 # that subclass it need the subclassing-Any check relaxed.
 [[tool.mypy.overrides]]
-module = ["django_filters.*"]
+module = ["django_filters.*", "icalendar.*"]
 ignore_missing_imports = true
 
+# icalendar is untyped; the ICS helper wraps it and returns bytes it produces.
 [[tool.mypy.overrides]]
-module = ["apps.projects.views", "apps.timetracking.views"]
+module = ["apps.scheduling.ics"]
+disallow_untyped_calls = false
+warn_return_any = false
+
+[[tool.mypy.overrides]]
+module = [
+    "apps.projects.views",
+    "apps.timetracking.views",
+    "apps.scheduling.views",
+]
 disallow_subclassing_any = false
 
 [tool.django-stubs]
