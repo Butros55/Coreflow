@@ -21,14 +21,28 @@ timer widget, My-Tasks buckets.
 **Still open for the full phase scope:** client card view + bulk actions (P1); subtasks UI,
 dependencies, timeline/gantt, custom fields, saved views (P2); favourites, overlap warning,
 PDF/CSV export, change log (P3). Tracked per phase below.
-| 4 | Clockodo integration (optional provider) | ⬜ |
-| 5 | Lexware Office integration + invoice workflow | ⬜ |
-| 6 | Finance dashboard + tax/reserve forecast | ⬜ |
-| 7 | Appointments, files, global activity feed | ⬜ |
-| 8 | Settings + integration centre | ⬜ |
+| 4 | Clockodo integration (optional provider) | 🟡 |
+| 5 | Lexware Office integration + invoice workflow | ✅ |
+| 6 | Finance dashboard + tax/reserve forecast | ✅ |
+| 7 | Appointments, files, global activity feed | ✅ |
+| 8 | Settings + integration centre | ✅ |
 | 9 | Security, privacy, production hardening | ⬜ |
 | 10 | Test suite (backend, frontend, E2E) | ⬜ |
 | 11 | Documentation + deployment | ⬜ |
+
+**✅ delivered (phases 5–8):** Lexware invoice workflow (compose open entries → 6 grouping
+strategies → editable preview → **Lexware draft**, drafts by default, double-billing blocked by a
+partial unique index, not just a status check); finance dashboard with revenue breakdowns and a
+**transparent step-by-step tax/reserve forecast** (versioned `TaxRuleSet`, §32a EStG as sourced
+data — nothing hardcoded — with the non-binding-advice disclaimer on every output); appointments +
+ICS import/export + task-from-appointment; file storage in MinIO with type/size guards; and the
+settings + integration centre (company profile, service types, tax profile, team, and provider
+cards that show real connection state with `.env` enablement hints instead of dead buttons).
+**All navigation pages now resolve to real, functional screens — no `ComingSoon` placeholders
+remain.**
+
+**🟡 Clockodo (phase 4):** connection test + minimal client shipped and wired into the integration
+centre; full two-way entry/customer/project sync is the remaining scope.
 
 ---
 
@@ -267,11 +281,13 @@ tax forecast, troubleshooting, update guide.
 - [x] Login works
 - [x] Demo mode works without any API credentials
 - [x] No credentials in the repository
-- [x] Navigation matches the reference design
-- [ ] Clients fully manageable · client dashboards · projects & sprints · table + kanban ·
-      persisted drag-and-drop · internal time tracking · timer · Clockodo connects from `.env` ·
-      Lexware connects from `.env` · contacts import · invoice/payment sync · draft invoice from
-      open hours · finance dashboard · traceable reserve forecast · all integrations disableable
+- [x] Navigation matches the reference design — **every nav page is built and functional**
+- [x] Clients manageable · client dashboards · projects & sprints · table + kanban · persisted
+      drag-and-drop · internal time tracking · timer · Lexware connects from `.env` · **draft
+      invoice from open hours** · finance dashboard · **traceable reserve forecast** · all
+      integrations disableable
+- [ ] Full Clockodo two-way sync (connection test done; entry/customer/project sync pending) ·
+      contacts import · automatic payment-status sync from Lexware webhooks
 - [x] Tests, linter, type check and builds pass *(for the code that exists)*
 - [ ] Documentation complete
 
