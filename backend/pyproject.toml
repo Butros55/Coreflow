@@ -106,9 +106,15 @@ known-first-party = ["apps", "config"]
 # pytest
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
+# --ds forces the test settings with the highest precedence, so the running
+# container's DJANGO_SETTINGS_MODULE=config.settings.dev env var can never leak
+# debug-toolbar / dev storage into a test run (`docker compose exec backend
+# pytest`). The ini key below is kept as documentation of intent; --ds is what
+# actually guarantees it regardless of how pytest is invoked.
 DJANGO_SETTINGS_MODULE = "config.settings.test"
 python_files = ["test_*.py", "tests.py"]
 addopts = [
+    "--ds=config.settings.test",
     "--strict-markers",
     "--strict-config",
     "-ra",
