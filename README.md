@@ -85,6 +85,17 @@ company profile under *Einstellungen*, set `LEXWARE_ENABLED=true` + `LEXWARE_API
 restart (`make up`), and run the connection test under *Einstellungen → Integrationen*. Demo data
 can always be added later with `make seed` (separate workspace) or removed with `make seed-reset`.
 
+**Windows / PowerShell, or a name with `&`, `–`, spaces:** call the command directly so your shell
+does the quoting (single quotes = everything literal), bypassing `make`:
+
+```powershell
+docker compose exec -T backend python manage.py bootstrap `
+  --email 'you@example.com' --workspace-name 'Meine Firma' --small-business
+```
+
+The workspace **name** is only a label — you can use a plain one here (e.g. `'Coreflow'`) and set
+the full legal company name that appears on invoices later under *Einstellungen → Unternehmen*.
+
 ---
 
 ## Common commands

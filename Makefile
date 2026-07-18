@@ -117,8 +117,9 @@ seed-reset: ## Wipe and reload demo data
 
 .PHONY: bootstrap
 bootstrap: ## Productive user+workspace, NO demo data: make bootstrap EMAIL=you@x.de NAME="Meine Firma"
-	@if [ -z "$(EMAIL)" ] || [ -z "$(NAME)" ]; then echo 'Usage: make bootstrap EMAIL=you@x.de NAME="Meine Firma" [PASSWORD=...] [SMALL_BUSINESS=1]'; exit 1; fi
-	$(BACKEND) python manage.py bootstrap --email "$(EMAIL)" --workspace-name "$(NAME)" $(if $(PASSWORD),--password "$(PASSWORD)") $(if $(SMALL_BUSINESS),--small-business)
+	$(if $(strip $(EMAIL)),,$(error EMAIL is required. Usage: make bootstrap EMAIL=you@x.de NAME="Meine Firma" [PASSWORD=...] [SMALL_BUSINESS=1]))
+	$(if $(strip $(NAME)),,$(error NAME is required. Usage: make bootstrap EMAIL=you@x.de NAME="Meine Firma" [PASSWORD=...] [SMALL_BUSINESS=1]))
+	$(BACKEND) python manage.py bootstrap --email "$(EMAIL)" --workspace-name "$(NAME)" $(if $(strip $(PASSWORD)),--password "$(PASSWORD)") $(if $(strip $(SMALL_BUSINESS)),--small-business)
 
 .PHONY: superuser
 superuser: ## Create a Django superuser
@@ -212,7 +213,7 @@ backup: ## Dump the database to backups/
 
 .PHONY: restore
 restore: ## Restore from a dump: make restore FILE=backups/xxx.dump
-	@if [ -z "$(FILE)" ]; then echo "Usage: make restore FILE=backups/xxx.dump"; exit 1; fi
+	$(if $(strip $(FILE)),,$(error FILE is required. Usage: make restore FILE=backups/xxx.dump))
 	$(COMPOSE) exec -T postgres pg_restore -U $${POSTGRES_USER:-coreflow} -d $${POSTGRES_DB:-coreflow} \
 		--clean --if-exists < $(FILE)
 	@echo "Restored from $(FILE)"
