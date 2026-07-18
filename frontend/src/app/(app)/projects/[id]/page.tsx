@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 
 import { PageHeader } from '@/components/layout/app-shell';
+import { DetailErrorState } from '@/components/ui/detail-error';
 import { Button } from '@/components/ui/button';
 import { DataTable, Td, Th } from '@/components/ui/group-bar';
 import { Panel, PanelBody, PanelHeader, PanelTitle, StatTile } from '@/components/ui/panel';
@@ -21,13 +22,23 @@ const BILLING_LABELS = {
 
 export default function ProjectDetailPage() {
   const params = useParams<{ id: string }>();
-  const { data: project, isLoading } = useProject(params.id);
+  const { data: project, isLoading, error } = useProject(params.id);
   const { data: sprintsData } = useSprints(params.id);
   const sprints = sprintsData?.results ?? [];
 
-  if (isLoading || !project) {
+  if (isLoading) {
     return (
       <div className="p-5 text-[length:var(--text-sm)] text-[var(--color-ink-muted)]">Lädt…</div>
+    );
+  }
+  if (error || !project) {
+    return (
+      <DetailErrorState
+        error={error}
+        entityLabel="Projekt"
+        backHref="/projects"
+        backLabel="Alle Projekte"
+      />
     );
   }
 

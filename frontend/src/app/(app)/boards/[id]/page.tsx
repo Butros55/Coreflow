@@ -11,6 +11,7 @@ import { STATUS_TONES, StatusSelect } from '@/components/tasks/status-select';
 import { TaskDrawer } from '@/components/tasks/task-drawer';
 import { AvatarStack } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
+import { DetailErrorState } from '@/components/ui/detail-error';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { ClickableRow, DataTable, GroupSection, Td, Th } from '@/components/ui/group-bar';
 import { Input, Label } from '@/components/ui/input';
@@ -47,7 +48,7 @@ function BoardPageInner() {
   const permissions = usePermissions();
 
   const boardId = params.id;
-  const { data: board } = useBoard(boardId);
+  const { data: board, error: boardError } = useBoard(boardId);
 
   // Derived, not synced: the board's configured default applies until the user
   // explicitly switches — no effect, no cascading render.
@@ -78,6 +79,17 @@ function BoardPageInner() {
     },
     [router, pathname, searchParams],
   );
+
+  if (boardError) {
+    return (
+      <DetailErrorState
+        error={boardError}
+        entityLabel="Board"
+        backHref="/boards"
+        backLabel="Alle Boards"
+      />
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0">

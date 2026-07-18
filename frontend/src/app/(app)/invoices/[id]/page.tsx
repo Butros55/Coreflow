@@ -7,6 +7,7 @@ import * as React from 'react';
 import { toast } from 'sonner';
 
 import { PageHeader } from '@/components/layout/app-shell';
+import { DetailErrorState } from '@/components/ui/detail-error';
 import { InvoiceStatusBadge } from '@/components/invoices/invoice-status-badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
@@ -30,12 +31,22 @@ import { formatMoney } from '@/lib/utils';
 export default function InvoiceDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const { data: invoice, isLoading } = useInvoice(params.id);
+  const { data: invoice, isLoading, error } = useInvoice(params.id);
   const permissions = usePermissions();
 
-  if (isLoading || !invoice) {
+  if (isLoading) {
     return (
       <div className="p-5 text-[length:var(--text-sm)] text-[var(--color-ink-muted)]">Lädt…</div>
+    );
+  }
+  if (error || !invoice) {
+    return (
+      <DetailErrorState
+        error={error}
+        entityLabel="Rechnung"
+        backHref="/invoices"
+        backLabel="Alle Rechnungen"
+      />
     );
   }
 

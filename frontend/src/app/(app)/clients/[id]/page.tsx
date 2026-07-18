@@ -7,6 +7,7 @@ import * as React from 'react';
 import { toast } from 'sonner';
 
 import { PageHeader } from '@/components/layout/app-shell';
+import { DetailErrorState } from '@/components/ui/detail-error';
 import { api } from '@/lib/api/client';
 import { BillingBadge } from '@/components/time/billing-badge';
 import { Button } from '@/components/ui/button';
@@ -50,12 +51,22 @@ const NOTE_TYPE_LABELS: Record<ClientNote['note_type'], string> = {
 export default function ClientDetailPage() {
   const params = useParams<{ id: string }>();
   const clientId = params.id;
-  const { data: client, isLoading } = useClient(clientId);
+  const { data: client, isLoading, error } = useClient(clientId);
   const permissions = usePermissions();
 
-  if (isLoading || !client) {
+  if (isLoading) {
     return (
       <div className="p-5 text-[length:var(--text-sm)] text-[var(--color-ink-muted)]">Lädt…</div>
+    );
+  }
+  if (error || !client) {
+    return (
+      <DetailErrorState
+        error={error}
+        entityLabel="Kunde"
+        backHref="/clients"
+        backLabel="Alle Kunden"
+      />
     );
   }
 

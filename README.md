@@ -283,6 +283,8 @@ The dev compose file is for development. For a production deployment:
 | Connection test fails with 401 | Wrong/rotated API key. Lexware: regenerate under *Public API*; note that rotation kills webhook subscriptions. Clockodo: key is under *Personal data*, and `CLOCKODO_EXTERNAL_APP_EMAIL` must be set. |
 | Clockodo sync runs but no entries appear | Check the user mapping: entries are only imported for Clockodo users whose e-mail matches a workspace member. The sync-job counters in the integration centre show what was skipped. |
 | Webhook returns 404 | `CLOCKODO_ENABLED=false` — the endpoint stays dark while disabled. |
+| A page that exists shows Next.js "404 — This page could not be found" | Stale compiled routes in the cached `.next` volume after a code update. Run `make frontend-clean`. |
+| Detail page says "… nicht gefunden" | The id no longer exists: deleted, from another workspace (switch top-left), or from a previous seed (`make seed-reset` regenerates all ids — old tabs/bookmarks go stale). |
 | Sync conflict shown in the integration centre | Local and remote changed concurrently (or a billed entry changed remotely). Nothing was overwritten — pick local/remote/ignore; the decision is audit-logged. |
 | Tests fail with `getaddrinfo failed` for host `postgres` | You ran host-side pytest with a Docker-internal `DATABASE_URL`. Either run `make test-backend` (in-container) or export `DATABASE_URL=postgresql://coreflow:coreflow@localhost:<POSTGRES_PORT>/coreflow`. |
 

@@ -115,6 +115,12 @@ seed: ## Load demo data (idempotent)
 seed-reset: ## Wipe and reload demo data
 	$(BACKEND) python manage.py seed_demo --reset
 
+.PHONY: frontend-clean
+frontend-clean: ## Fix stale UI after updates: wipe the cached Next.js build and restart
+	$(COMPOSE) rm -sf frontend
+	-docker volume rm coreflow_frontend-next
+	$(COMPOSE) up -d frontend
+
 .PHONY: bootstrap
 bootstrap: ## Productive user+workspace, NO demo data: make bootstrap EMAIL=you@x.de NAME="Meine Firma"
 	$(if $(strip $(EMAIL)),,$(error EMAIL is required. Usage: make bootstrap EMAIL=you@x.de NAME="Meine Firma" [PASSWORD=...] [SMALL_BUSINESS=1]))
