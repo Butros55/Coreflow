@@ -1,24 +1,34 @@
 'use client';
 
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Check, ChevronDown } from 'lucide-react';
+import { Check, ChevronDown, Plus } from 'lucide-react';
+import * as React from 'react';
 import { toast } from 'sonner';
 
+import { CreateWorkspaceDialog } from '@/components/layout/create-workspace';
 import { useSession, useSwitchWorkspace } from '@/lib/session';
 import { cn, colorFromId, GROUP_COLORS, initialsOf } from '@/lib/utils';
 
 export function WorkspaceSwitcher() {
   const { data: session } = useSession();
   const switchWorkspace = useSwitchWorkspace();
+  const [createOpen, setCreateOpen] = React.useState(false);
 
   const active = session?.workspace;
   const workspaces = session?.workspaces ?? [];
 
   if (!active) {
     return (
-      <div className="flex h-9 items-center rounded-[var(--radius-sm)] px-2 text-[length:var(--text-xs)] text-[var(--color-ink-subtle)]">
-        Kein Workspace
-      </div>
+      <>
+        <button
+          type="button"
+          onClick={() => setCreateOpen(true)}
+          className="flex h-9 w-full items-center gap-2 rounded-[var(--radius-sm)] px-2 text-[length:var(--text-sm)] text-[var(--color-ink-muted)] transition-colors hover:bg-[var(--color-panel-raised)]"
+        >
+          <Plus className="size-3.5" aria-hidden /> Workspace erstellen
+        </button>
+        <CreateWorkspaceDialog open={createOpen} onOpenChange={setCreateOpen} />
+      </>
     );
   }
 
@@ -84,8 +94,21 @@ export function WorkspaceSwitcher() {
               ) : null}
             </DropdownMenu.Item>
           ))}
+          <DropdownMenu.Separator className="my-1 h-px bg-[var(--color-line)]" />
+          <DropdownMenu.Item
+            onSelect={() => setCreateOpen(true)}
+            className={cn(
+              'flex cursor-pointer items-center gap-2 rounded-[var(--radius-xs)] px-2 py-1.5 text-[length:var(--text-sm)] outline-none',
+              'text-[var(--color-ink-muted)] data-[highlighted]:bg-[var(--color-panel)] data-[highlighted]:text-[var(--color-ink)]',
+            )}
+          >
+            <Plus className="size-3.5" aria-hidden />
+            Neuer Workspace
+          </DropdownMenu.Item>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
+
+      <CreateWorkspaceDialog open={createOpen} onOpenChange={setCreateOpen} />
     </DropdownMenu.Root>
   );
 }

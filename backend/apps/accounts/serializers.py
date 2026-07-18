@@ -49,6 +49,14 @@ class WorkspaceSummarySerializer(serializers.ModelSerializer[Workspace]):
         return role_map.get(obj.pk)
 
 
+class WorkspaceCreateSerializer(serializers.Serializer[dict[str, object]]):
+    """Input for creating a workspace — the rest is filled in Einstellungen."""
+
+    name = serializers.CharField(max_length=120)
+    legal_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    small_business = serializers.BooleanField(required=False, default=False)
+
+
 class WorkspaceSerializer(serializers.ModelSerializer[Workspace]):
     """Full workspace/company profile."""
 

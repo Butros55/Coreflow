@@ -30,6 +30,7 @@ from apps.accounts.serializers import (
     PasswordChangeSerializer,
     SessionSerializer,
     UserSerializer,
+    WorkspaceCreateSerializer,
     WorkspaceSerializer,
     WorkspaceSummarySerializer,
 )
@@ -198,19 +199,51 @@ def _build_session_payload(request: Request) -> dict[str, Any]:
 class WorkspaceViewSet(viewsets.ModelViewSet[Workspace]):
     """Workspaces the current user belongs to.
 
-    Creation is deliberately absent: workspaces are provisioned by seeding or by
-    an owner-level flow, not by any authenticated caller.
+    Any authenticated user may CREATE a workspace (becoming its owner) — that
+    is also the onboarding path for accounts that have none yet. Listing is
+    membership-scoped, editing is admin-only. Data separation costs nothing
+    extra: every domain viewset filters by the active workspace membership.
     """
 
     serializer_class = WorkspaceSerializer
-    http_method_names = ["get", "patch", "head", "options"]
+    # "post" also carries the set-default action — without it the switcher's
+    # POST was rejected with 405 before it ever reached the action.
+    http_method_names = ["get", "post", "patch", "head", "options"]
 
     def get_permissions(self) -> list[Any]:
         if self.request.method in ("PATCH", "PUT", "DELETE"):
             return [IsWorkspaceAdmin()]
-        from apps.accounts.permissions import IsWorkspaceMember
+        # GET/POST need only authentication: a user WITHOUT any workspace must
+        # still be able to list (empty) and create their first one. The
+        # queryset scoping keeps foreign workspaces invisible regardless.
+        from rest_framework.permissions import IsAuthenticated
 
-        return [IsWorkspaceMember()]
+        return [IsAuthenticated()]
+
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Create a workspace; the caller becomes its owner."""
+        from apps.accounts.services import provision_workspace
+
+        serializer = WorkspaceCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = require_user(request)
+
+        workspace = provision_workspace(
+            name=serializer.validated_data["name"],
+            owner=user,
+            small_business=serializer.validated_data.get("small_business", False),
+            legal_name=serializer.validated_data.get("legal_name", ""),
+            owner_name=f"{user.first_name} {user.last_name}".strip(),
+            email=user.email,
+        )
+        record_audit(
+            request,
+            "workspace.created",
+            workspace=workspace,
+            target=workspace,
+            summary=workspace.name,
+        )
+        return Response(WorkspaceSerializer(workspace).data, status=status.HTTP_201_CREATED)
 
     def get_queryset(self) -> QuerySet[Workspace]:
         # Scoped to membership: an ID from another workspace 404s rather than resolving.

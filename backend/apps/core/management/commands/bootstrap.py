@@ -15,9 +15,9 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
-from django.utils.text import slugify
 
 from apps.accounts.models import User, Workspace, WorkspaceMembership, WorkspaceRole
+from apps.accounts.services import provision_workspace
 from apps.finance.models import TaxProfile
 from apps.finance.rulesets import install_default_rulesets
 
@@ -77,28 +77,28 @@ class Command(BaseCommand):
                 user.set_password(password)
                 user.save()
 
-            slug = slugify(workspace_name)[:70] or "workspace"
-            candidate = slug
-            suffix = 2
-            while Workspace.objects.filter(slug=candidate).exclude(name=workspace_name).exists():
-                candidate = f"{slug}-{suffix}"
-                suffix += 1
-            workspace, ws_created = Workspace.objects.get_or_create(
-                slug=candidate,
-                defaults={
-                    "name": workspace_name,
-                    "legal_name": workspace_name,
-                    "owner_name": owner_name,
-                    "email": email,
-                    "small_business": bool(options["small_business"]),
-                },
-            )
-
-            WorkspaceMembership.objects.update_or_create(
-                workspace=workspace,
-                user=user,
-                defaults={"role": WorkspaceRole.OWNER, "is_active": True, "is_default": True},
-            )
+            existing = Workspace.objects.filter(
+                name=workspace_name,
+                memberships__user=user,
+                memberships__role=WorkspaceRole.OWNER,
+            ).first()
+            if existing is not None:
+                workspace, ws_created = existing, False
+                WorkspaceMembership.objects.update_or_create(
+                    workspace=workspace,
+                    user=user,
+                    defaults={"role": WorkspaceRole.OWNER, "is_active": True, "is_default": True},
+                )
+            else:
+                # Same provisioning path as the in-app "Neuer Workspace" flow.
+                workspace = provision_workspace(
+                    name=workspace_name,
+                    owner=user,
+                    small_business=bool(options["small_business"]),
+                    owner_name=owner_name,
+                    email=email,
+                )
+                ws_created = True
 
             rulesets_installed = install_default_rulesets()
             year = dt.date.today().year

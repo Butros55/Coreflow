@@ -55,6 +55,22 @@ export function useLogout() {
   });
 }
 
+export function useCreateWorkspace() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { name: string; small_business?: boolean }) => {
+      const created = await authApi.createWorkspace(payload);
+      // Activate the new workspace immediately — that is what the user expects.
+      setActiveWorkspaceId(created.id);
+      return authApi.setDefaultWorkspace(created.id);
+    },
+    onSuccess: (session) => {
+      queryClient.setQueryData(SESSION_QUERY_KEY, session);
+      queryClient.invalidateQueries();
+    },
+  });
+}
+
 export function useSwitchWorkspace() {
   const queryClient = useQueryClient();
   return useMutation({

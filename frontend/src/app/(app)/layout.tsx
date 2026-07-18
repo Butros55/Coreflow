@@ -3,6 +3,7 @@
 import { Loader2 } from 'lucide-react';
 
 import { AppShell } from '@/components/layout/app-shell';
+import { WorkspaceOnboarding } from '@/components/layout/create-workspace';
 import { useRequireSession } from '@/lib/session';
 
 /**
@@ -25,6 +26,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   // useRequireSession is redirecting; render nothing rather than flashing UI.
   if (session === null) return null;
+
+  // Fresh account without any workspace (e.g. created via createsuperuser):
+  // the app is unusable until one exists, so onboarding takes over.
+  if (session.workspaces.length === 0) return <WorkspaceOnboarding />;
 
   return <AppShell>{children}</AppShell>;
 }

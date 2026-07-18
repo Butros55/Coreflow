@@ -27,5 +27,11 @@ export const authApi = {
   ) => api.patch<User>('/auth/me', patch),
 
   setDefaultWorkspace: (workspaceId: string) =>
-    api.post<Session>(`/workspaces/${workspaceId}/set-default`),
+    // Trailing slash is load-bearing: the router registers set-default/ and
+    // APPEND_SLASH cannot redirect a POST — without it this 500s.
+    api.post<Session>(`/workspaces/${workspaceId}/set-default/`),
+
+  createWorkspace: (payload: { name: string; small_business?: boolean }) =>
+    // skipWorkspace: the caller may not have any workspace yet (onboarding).
+    api.post<{ id: string; name: string }>('/workspaces/', payload, { skipWorkspace: true }),
 };
