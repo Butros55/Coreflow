@@ -6,8 +6,29 @@ CRM, projects, sprints, tasks, time tracking, invoicing, Lexware Office integrat
 Clockodo sync, appointments, revenue analysis and tax/reserve forecasting — in one application,
 instead of switching between Lexware, Clockodo, spreadsheets, a calendar and a project tool.
 
-> **Status:** Phase 0 of 12 complete (foundation, auth, workspaces, sync infrastructure, dark UI
-> shell). See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for what is built and what is next.
+> **Status:** all core phases delivered. Every navigation page is functional: dashboard, my tasks,
+> clients (incl. client dashboard + GDPR tools), projects, kanban boards, time tracking with timer,
+> calendar with ICS import/export, invoices (compose → Lexware draft → payment sync), finance with
+> a traceable tax/reserve forecast, reports, files, and settings with the integration centre.
+> Remaining polish is tracked in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
+
+**What it does, concretely:**
+
+* **CRM** — clients with contacts, notes, activity feed, per-client dashboard (open hours, open
+  value, projects, invoices), data export (Art. 15 DSGVO) and erasure with § 147 AO legal hold.
+* **Projects & boards** — kanban with persisted drag-and-drop ordering, sprints, task drawer with
+  comments/checklists, deep-linkable URLs.
+* **Time tracking** — DB-enforced single running timer, manual entries, configurable rounding,
+  billing lifecycle from *open* to *billed*; works fully without Clockodo.
+* **Invoicing** — select open entries → grouped, editable draft → **Lexware draft** (never a final
+  invoice unless you explicitly opt in) → status/number/payment mirrored back; double billing is
+  blocked by a database constraint.
+* **Finance** — revenue KPIs and breakdowns plus a step-by-step tax reserve forecast (§ 32a EStG
+  as versioned, sourced data — not hardcoded), always marked as non-binding.
+* **Integrations** — provider status cards, connection tests, manual sync, webhook setup helpers,
+  sync-conflict resolution; both providers optional and off by default.
+* **Audit log** — logins (incl. failures), settings changes, invoice sends, sync triggers, GDPR
+  operations; admin-readable via API.
 
 ---
 
@@ -66,7 +87,7 @@ make seed-reset        # wipe and reload demo data
 make superuser         # create a Django superuser
 
 make test              # backend + frontend unit tests
-make test-e2e          # Playwright end-to-end
+make test-e2e          # full journey: client → time → invoice → paid
 make lint              # ruff + eslint
 make typecheck         # mypy + tsc
 make check             # everything CI runs
@@ -79,7 +100,7 @@ make bash    # shell in backend    make schema  # write the OpenAPI schema
 ```
 
 ---
-ö
+
 ## Documentation
 
 | Document | What's in it |
@@ -105,7 +126,7 @@ browser ──▶ Next.js (:3000) ──▶ Django/DRF (:8000) ──┬─▶ P
                                                      └─▶ MinIO/S3     files
 
 Celery ──▶ Lexware Office · Clockodo   (outbound only)
-Lexware/Clockodo ──▶ POST /api/v1/webhooks/…   (inbound)
+Clockodo ──▶ POST /webhooks/clockodo/          (inbound, token-verified)
 ```
 
 **Who owns what** — the decision everything else follows from:
@@ -188,6 +209,56 @@ npm run dev
 Tests run without Docker too — `uv run pytest` needs only a reachable PostgreSQL. The test settings
 **force both integrations off** and block real network calls, so the suite can never reach a live
 Lexware or Clockodo account.
+
+---
+
+## Updating
+
+```bash
+git pull
+make build        # rebuild images (dependencies may have changed)
+make up           # restart the stack
+make migrate      # apply new migrations
+```
+
+Migrations are always additive-safe to run; `make backup` first if you want a restore point.
+`make seed` is idempotent and never overwrites data you changed.
+
+---
+
+## Production notes
+
+The dev compose file is for development. For a production deployment:
+
+* Run with `DJANGO_SETTINGS_MODULE=config.settings.prod` — it **refuses to boot** on a weak
+  `SECRET_KEY`, wildcard `ALLOWED_HOSTS`, non-HTTPS `APP_URL`, or an enabled integration without
+  credentials, so a misconfigured deploy fails loudly instead of running insecurely.
+* Terminate TLS in a reverse proxy (Caddy/nginx/Traefik) and forward `X-Forwarded-Proto: https` —
+  `SECURE_PROXY_SSL_HEADER` and HSTS (1 year, preload) are already configured.
+* Set `APP_URL`/`API_URL` to the public HTTPS origins; they drive CORS, CSRF and webhook URLs.
+* Webhook endpoints must be publicly reachable (`/webhooks/clockodo/`); everything else can sit
+  behind whatever access restrictions you like.
+* Postgres and Redis should not publish ports publicly. MinIO can be replaced by any S3 bucket via
+  the `OBJECT_STORAGE_*` variables.
+* Schedule `make backup` (pg_dump custom format into `backups/`) via cron; restores are
+  `make restore FILE=…`. Invoices/bookkeeping data are subject to the 10-year retention duty —
+  back up accordingly.
+
+---
+
+## Troubleshooting
+
+| Symptom | Cause / fix |
+| --- | --- |
+| `make setup` fails on ports | Another service owns 5432/6379/8000. Set `POSTGRES_PORT` etc. in `.env` (see Quickstart) and rerun. |
+| Browser shows `net::ERR_FAILED` on API calls | `API_URL` doesn't match the published backend port. Leave `APP_URL`/`API_URL` empty in dev — compose derives them. |
+| Login loops back to the login page | Stale cookies from a different port/origin. Clear cookies for `localhost`, reload. |
+| "Lexware ist nicht aktiviert" when sending an invoice | Expected with `LEXWARE_ENABLED=false`: the draft stays local and fully editable. Enable the integration to transfer it. |
+| Connection test fails with 401 | Wrong/rotated API key. Lexware: regenerate under *Public API*; note that rotation kills webhook subscriptions. Clockodo: key is under *Personal data*, and `CLOCKODO_EXTERNAL_APP_EMAIL` must be set. |
+| Clockodo sync runs but no entries appear | Check the user mapping: entries are only imported for Clockodo users whose e-mail matches a workspace member. The sync-job counters in the integration centre show what was skipped. |
+| Webhook returns 404 | `CLOCKODO_ENABLED=false` — the endpoint stays dark while disabled. |
+| Sync conflict shown in the integration centre | Local and remote changed concurrently (or a billed entry changed remotely). Nothing was overwritten — pick local/remote/ignore; the decision is audit-logged. |
+| Tests fail with `getaddrinfo failed` for host `postgres` | You ran host-side pytest with a Docker-internal `DATABASE_URL`. Either run `make test-backend` (in-container) or export `DATABASE_URL=postgresql://coreflow:coreflow@localhost:<POSTGRES_PORT>/coreflow`. |
 
 ---
 

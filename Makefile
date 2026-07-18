@@ -138,8 +138,8 @@ test-frontend: ## Frontend unit tests (vitest)
 	$(FRONTEND) npm run test:run
 
 .PHONY: test-e2e
-test-e2e: ## End-to-end tests (Playwright)
-	$(FRONTEND) npm run test:e2e
+test-e2e: ## End-to-end journey: client -> time -> invoice -> Lexware -> paid (mocked providers)
+	$(BACKEND) pytest apps/invoicing/tests/test_journey.py -v
 
 .PHONY: lint
 lint: lint-backend lint-frontend ## Lint everything

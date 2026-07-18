@@ -27,8 +27,8 @@ PDF/CSV export, change log (P3). Tracked per phase below.
 | 7 | Appointments, files, global activity feed | ✅ |
 | 8 | Settings + integration centre | ✅ |
 | 9 | Security, privacy, production hardening | ✅ |
-| 10 | Test suite (backend, frontend, E2E) | ⬜ |
-| 11 | Documentation + deployment | ⬜ |
+| 10 | Test suite (backend, frontend, E2E) | ✅ |
+| 11 | Documentation + deployment | ✅ |
 
 **✅ delivered (phases 5–8):** Lexware invoice workflow (compose open entries → 6 grouping
 strategies → editable preview → **Lexware draft**, drafts by default, double-billing blocked by a
@@ -280,19 +280,27 @@ scrubbing in logs, health/readiness, `make backup`/`restore`). Phase 9 added the
 
 Dependency/licence overview and the retention-policy write-up are documentation → Phase 11.
 
-## Phase 10 — Tests
+## Phase 10 — Tests — delivered
 
-Backend: models, permissions, every domain area, invoice creation, **double-billing protection**,
-provider payload mapping, **webhook idempotency**, sync conflicts, tax calculation, Decimal
-rounding, timezones, pagination, error handling.
-Frontend: component tests. E2E: the full demo-client → invoice-draft → payment-sync journey against
-**mocked** providers (neither vendor offers a sandbox).
+231 backend tests (models, permissions, every domain area, invoice creation, double-billing
+protection, provider payload mapping, webhook idempotency + dedupe, sync conflicts, tax
+calculation against verified §32a values, Decimal rounding, audit trail, GDPR legal hold) and
+39 frontend unit tests. **E2E:** `test_journey.py` drives the whole flow through the real API —
+client → project → timer + manual entry → picker → composed draft → Lexware draft (mocked; no
+sandbox exists) → remote finalisation + payment → entries billed → picker empty → finance KPIs →
+audit trail. `make test-e2e` runs it. The journey immediately caught a real bug (unmirrored
+`voucherDate` dropped paid invoices from every revenue KPI) — which is the argument for it.
 
-## Phase 11 — Docs + deployment
+## Phase 11 — Docs + deployment — delivered
 
-Full README, quickstart, dev/prod setup, Docker, backup/restore, provider setup, webhook setup,
-every `.env` variable, data model, architecture diagram, sync logic, conflict handling, invoicing,
-tax forecast, troubleshooting, update guide.
+README covers: feature overview, quickstart (`make setup`, no credentials needed), port
+collisions, every make target, architecture + ownership boundaries, provider setup incl. the
+draft-only invoice warning and the Clockodo webhook handshake, **update guide**, **production
+notes** (prod settings boot-refusal, reverse proxy/TLS, webhook reachability, backup cadence
+under the 10-year retention duty), and a **troubleshooting table** built from failure modes
+actually hit during development. `.env.example` documents every variable inline;
+docs/architecture.md, docs/data-model.md and the two verified integration contracts complete the
+set. The unused Playwright scaffold was removed — `make test-e2e` now runs the real journey.
 
 ---
 
@@ -309,8 +317,10 @@ tax forecast, troubleshooting, update guide.
       integrations disableable
 - [x] Clockodo connects from `.env` — full customer/project/service/user/entry sync, webhook
       receiver, billed-status push, invoice/payment sync from Lexware (scheduled polling)
-- [ ] Lexware contacts import · Lexware inbound webhook receiver (polling covers status today)
+- [ ] Nice-to-have follow-ups: Lexware contacts import · Lexware inbound webhook receiver
+      (scheduled polling covers status/payment sync today) · client card view · subtasks UI ·
+      gantt · PDF/CSV timesheet export · audit-log UI
 - [x] Tests, linter, type check and builds pass *(for the code that exists)*
-- [ ] Documentation complete
+- [x] Documentation complete
 
 **Nothing is marked done until it is verified by running it.**
