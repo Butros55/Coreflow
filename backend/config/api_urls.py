@@ -34,6 +34,7 @@ from apps.integrations.views import (
     IntegrationStatusView,
     SyncConflictViewSet,
     TestConnectionView,
+    TriggerSyncView,
 )
 from apps.invoicing.views import InvoiceViewSet, OpenTimeEntriesView
 from apps.projects.views import (
@@ -96,6 +97,7 @@ finance_patterns = [
 integration_patterns = [
     path("status", IntegrationStatusView.as_view(), name="status"),
     path("<str:provider>/test", TestConnectionView.as_view(), name="test"),
+    path("<str:provider>/sync", TriggerSyncView.as_view(), name="sync"),
 ]
 
 urlpatterns = [

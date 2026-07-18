@@ -21,7 +21,7 @@ timer widget, My-Tasks buckets.
 **Still open for the full phase scope:** client card view + bulk actions (P1); subtasks UI,
 dependencies, timeline/gantt, custom fields, saved views (P2); favourites, overlap warning,
 PDF/CSV export, change log (P3). Tracked per phase below.
-| 4 | Clockodo integration (optional provider) | 🟡 |
+| 4 | Clockodo integration (optional provider) | ✅ |
 | 5 | Lexware Office integration + invoice workflow | ✅ |
 | 6 | Finance dashboard + tax/reserve forecast | ✅ |
 | 7 | Appointments, files, global activity feed | ✅ |
@@ -41,8 +41,16 @@ cards that show real connection state with `.env` enablement hints instead of de
 **All navigation pages now resolve to real, functional screens — no `ComingSoon` placeholders
 remain.**
 
-**🟡 Clockodo (phase 4):** connection test + minimal client shipped and wired into the integration
-centre; full two-way entry/customer/project sync is the remaining scope.
+**✅ Clockodo (phase 4):** full sync engine — customers/projects/services mirrored structurally
+both ways (name-match or create, mapping via `ExternalObjectLink` only, CRM fields never
+overwritten), users matched by e-mail only, entries pulled inbound with hash idempotency, local
+edits pushed back when remote is unchanged, and every true divergence (or any remote change to a
+locked/billed entry) surfacing as a `SyncConflict` — never auto-merged. Webhook receiver with
+persist-then-ack, constant-time token check, dedupe constraint, and the UI-only registration
+handshake surfaced in the integration centre (URL + secret to paste into Clockodo). Billed
+invoices push `billable=2` per entry (retried task). Beat: incremental entry sync + Lexware
+invoice-status/payment refresh + webhook backstop — all previously referenced task modules now
+actually exist and register with the worker.
 
 ---
 
@@ -286,8 +294,9 @@ tax forecast, troubleshooting, update guide.
       drag-and-drop · internal time tracking · timer · Lexware connects from `.env` · **draft
       invoice from open hours** · finance dashboard · **traceable reserve forecast** · all
       integrations disableable
-- [ ] Full Clockodo two-way sync (connection test done; entry/customer/project sync pending) ·
-      contacts import · automatic payment-status sync from Lexware webhooks
+- [x] Clockodo connects from `.env` — full customer/project/service/user/entry sync, webhook
+      receiver, billed-status push, invoice/payment sync from Lexware (scheduled polling)
+- [ ] Lexware contacts import · Lexware inbound webhook receiver (polling covers status today)
 - [x] Tests, linter, type check and builds pass *(for the code that exists)*
 - [ ] Documentation complete
 

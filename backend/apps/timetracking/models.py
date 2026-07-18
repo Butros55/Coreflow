@@ -43,6 +43,7 @@ class BillingStatus(models.TextChoices):
 class EntrySource(models.TextChoices):
     MANUAL = "manual", _("Manuell")
     TIMER = "timer", _("Timer")
+    CLOCKODO = "clockodo", _("Clockodo")
 
 
 class TimeEntry(WorkspaceScopedModel, BaseModel):

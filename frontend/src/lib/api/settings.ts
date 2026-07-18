@@ -94,6 +94,10 @@ export interface IntegrationStatus {
   open_conflicts: number;
   linked_objects: number;
   webhook_events: number;
+  /** Clockodo only: the URL to paste into Clockodo's webhook settings. */
+  webhook_url?: string;
+  /** Clockodo only: handshake secret received on webhook creation. */
+  webhook_handshake_secret?: string;
 }
 
 export function useIntegrationStatus() {
@@ -111,6 +115,18 @@ export function useTestConnection() {
     mutationFn: (provider: 'lexware' | 'clockodo') =>
       api.post<{ ok: boolean; company_name: string }>(`/integrations/${provider}/test`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['integration-status'] }),
+  });
+}
+
+export function useTriggerSync() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (provider: 'lexware' | 'clockodo') =>
+      api.post<{ ok: boolean; queued: boolean }>(`/integrations/${provider}/sync`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['integration-status'] });
+      queryClient.invalidateQueries({ queryKey: ['sync-conflicts'] });
+    },
   });
 }
 

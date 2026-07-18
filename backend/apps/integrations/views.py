@@ -59,11 +59,31 @@ def _provider_status(workspace: Any, provider: str) -> dict[str, Any]:
     ).count()
     webhook_events = WebhookEvent.objects.filter(workspace=workspace, provider=provider).count()
 
+    extra: dict[str, Any] = {}
+    if provider == Provider.CLOCKODO:
+        # Webhook setup is a manual step in Clockodo's UI (clockodo.md §7):
+        # the user pastes THIS URL there, and Clockodo answers with a handshake
+        # secret that must be pasted back — so both are surfaced here.
+        extra["webhook_url"] = f"{settings.API_URL.rstrip('/')}/webhooks/clockodo/"
+        handshake = (
+            WebhookEvent.objects.filter(
+                workspace=workspace,
+                provider=Provider.CLOCKODO,
+                event_type="webhook.handshake",
+            )
+            .order_by("-received_at")
+            .first()
+        )
+        extra["webhook_handshake_secret"] = (
+            str(handshake.payload.get("secret", "")) if handshake else ""
+        )
+
     return {
         "provider": provider,
         "enabled": enabled,
         "configured": configured,
         "webhook_configured": webhook_configured,
+        **extra,
         "connected": bool(profile and profile.fetched_at),
         "profile": {
             "company_name": profile.company_name if profile else "",
@@ -198,6 +218,45 @@ class TestConnectionView(APIView):
         return Response(
             {"error": {"code": "connection_failed", "message": detail}},
             status=http_status.HTTP_502_BAD_GATEWAY,
+        )
+
+
+class TriggerSyncView(APIView):
+    """POST /integrations/<provider>/sync — queue a manual sync run.
+
+    Returns 202 immediately; progress lands in SyncJob rows that the status
+    card reads. In eager (test) mode the task runs inline.
+    """
+
+    permission_classes = [IsWorkspaceAdmin]
+
+    def post(self, request: Request, provider: str) -> Response:
+        workspace = resolve_workspace(request)
+        if workspace is None:
+            return Response({"detail": "Kein Workspace."}, status=http_status.HTTP_403_FORBIDDEN)
+        user = require_user(request)
+
+        if provider == Provider.CLOCKODO:
+            from apps.integrations.clockodo.client import is_clockodo_enabled
+            from apps.integrations.clockodo.tasks import sync_clockodo_full
+
+            if not is_clockodo_enabled():
+                return TestConnectionView._disabled("Clockodo")
+            sync_clockodo_full.delay(str(workspace.pk), str(user.pk))
+            return Response({"ok": True, "queued": True}, status=http_status.HTTP_202_ACCEPTED)
+
+        if provider == Provider.LEXWARE:
+            from apps.integrations.lexware.client import is_lexware_enabled
+            from apps.integrations.lexware.tasks import sync_lexware_incremental
+
+            if not is_lexware_enabled():
+                return TestConnectionView._disabled("Lexware")
+            sync_lexware_incremental.delay()
+            return Response({"ok": True, "queued": True}, status=http_status.HTTP_202_ACCEPTED)
+
+        return Response(
+            {"error": {"code": "unknown_provider", "message": "Unbekannter Anbieter."}},
+            status=http_status.HTTP_404_NOT_FOUND,
         )
 
 

@@ -1,6 +1,14 @@
 'use client';
 
-import { AlertTriangle, CheckCircle2, Info, Plug, RefreshCw, XCircle } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowDownUp,
+  CheckCircle2,
+  Info,
+  Plug,
+  RefreshCw,
+  XCircle,
+} from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -11,6 +19,7 @@ import {
   useResolveConflict,
   useSyncConflicts,
   useTestConnection,
+  useTriggerSync,
   type IntegrationStatus,
 } from '@/lib/api/settings';
 
@@ -62,6 +71,7 @@ function ProviderCard({
 }) {
   const meta = PROVIDER_META[provider];
   const test = useTestConnection();
+  const sync = useTriggerSync();
 
   const stateLabel = !status.enabled
     ? { tone: 'hold' as const, text: 'Deaktiviert', icon: XCircle }
@@ -133,27 +143,67 @@ function ProviderCard({
             <p>{meta.envHint}</p>
           </div>
         ) : (
-          <div className="flex items-center gap-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              loading={test.isPending && test.variables === provider}
-              onClick={() =>
-                test.mutate(provider, {
-                  onSuccess: (result) =>
-                    toast.success(`Verbunden mit ${result.company_name || meta.name}.`),
-                  onError: (error) => toast.error(error.message),
-                })
-              }
-            >
-              <RefreshCw aria-hidden /> Verbindung testen
-            </Button>
-            {status.webhook_configured ? (
-              <StatusTint tone="done">Webhook konfiguriert</StatusTint>
-            ) : (
-              <StatusTint tone="hold">Kein Webhook</StatusTint>
-            )}
-          </div>
+          <>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                loading={test.isPending && test.variables === provider}
+                onClick={() =>
+                  test.mutate(provider, {
+                    onSuccess: (result) =>
+                      toast.success(`Verbunden mit ${result.company_name || meta.name}.`),
+                    onError: (error) => toast.error(error.message),
+                  })
+                }
+              >
+                <RefreshCw aria-hidden /> Verbindung testen
+              </Button>
+              {status.connected ? (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  loading={sync.isPending && sync.variables === provider}
+                  onClick={() =>
+                    sync.mutate(provider, {
+                      onSuccess: () =>
+                        toast.success(
+                          'Synchronisierung gestartet — Ergebnisse erscheinen hier in Kürze.',
+                        ),
+                      onError: (error) => toast.error(error.message),
+                    })
+                  }
+                >
+                  <ArrowDownUp aria-hidden /> Jetzt synchronisieren
+                </Button>
+              ) : null}
+              {status.webhook_configured ? (
+                <StatusTint tone="done">Webhook konfiguriert</StatusTint>
+              ) : (
+                <StatusTint tone="hold">Kein Webhook</StatusTint>
+              )}
+            </div>
+            {provider === 'clockodo' && status.webhook_url ? (
+              <div className="space-y-1 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-panel-sunken)] p-2.5 text-[length:var(--text-2xs)]">
+                <p className="text-[var(--color-ink-muted)]">
+                  Webhook-URL (im Clockodo-Menü eintragen):
+                </p>
+                <code className="block break-all text-[var(--color-ink)]">
+                  {status.webhook_url}
+                </code>
+                {status.webhook_handshake_secret ? (
+                  <>
+                    <p className="pt-1 text-[var(--color-ink-muted)]">
+                      Empfangenes Handshake-Secret (zurück in Clockodo einfügen):
+                    </p>
+                    <code className="block break-all text-[var(--color-ink)]">
+                      {status.webhook_handshake_secret}
+                    </code>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+          </>
         )}
 
         <p className="border-t border-[var(--color-line)] pt-2.5 text-[length:var(--text-2xs)] leading-relaxed text-[var(--color-ink-subtle)]">
