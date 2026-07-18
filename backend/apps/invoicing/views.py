@@ -11,6 +11,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from apps.core.api import WorkspaceScopedViewSet
+from apps.core.audit import record_audit
 from apps.core.money import money
 from apps.invoicing.models import Invoice, InvoiceLine, InvoiceStatus
 from apps.invoicing.serializers import (
@@ -157,6 +158,13 @@ class InvoiceViewSet(WorkspaceScopedViewSet):
                 {"error": {"code": "not_cancellable", "message": str(exc)}},
                 status=http_status.HTTP_409_CONFLICT,
             )
+        record_audit(
+            request,
+            "invoice.cancelled",
+            workspace=invoice.workspace,
+            target=invoice,
+            summary=invoice.invoice_number or str(invoice.pk),
+        )
         return Response(status=http_status.HTTP_204_NO_CONTENT)
 
     @action(detail=False, methods=["post"], url_path="preview")
@@ -225,6 +233,13 @@ class InvoiceViewSet(WorkspaceScopedViewSet):
                 {"error": {"code": "lexware_error", "message": str(exc)}},
                 status=http_status.HTTP_502_BAD_GATEWAY,
             )
+        record_audit(
+            request,
+            "invoice.sent",
+            workspace=invoice.workspace,
+            target=invoice,
+            summary=invoice.invoice_number or str(invoice.pk),
+        )
         return Response(
             InvoiceDetailSerializer(invoice, context=self.get_serializer_context()).data
         )

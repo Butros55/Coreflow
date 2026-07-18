@@ -15,6 +15,7 @@ from rest_framework.views import APIView
 
 from apps.accounts.permissions import IsWorkspaceAdmin, resolve_workspace
 from apps.accounts.utils import require_user
+from apps.core.audit import record_audit
 from apps.core.logging import get_logger
 from apps.integrations.models import (
     ConflictResolutionStatus,
@@ -135,10 +136,21 @@ class TestConnectionView(APIView):
         if workspace is None:
             return Response({"detail": "Kein Workspace."}, status=http_status.HTTP_403_FORBIDDEN)
 
-        if provider == Provider.LEXWARE:
-            return self._test_lexware(workspace)
-        if provider == Provider.CLOCKODO:
-            return self._test_clockodo(workspace)
+        if provider in (Provider.LEXWARE, Provider.CLOCKODO):
+            response = (
+                self._test_lexware(workspace)
+                if provider == Provider.LEXWARE
+                else self._test_clockodo(workspace)
+            )
+            record_audit(
+                request,
+                "integration.connection_tested",
+                workspace=workspace,
+                summary=f"{provider}: HTTP {response.status_code}",
+                provider=provider,
+                ok=response.status_code == 200,
+            )
+            return response
         return Response(
             {"error": {"code": "unknown_provider", "message": "Unbekannter Anbieter."}},
             status=http_status.HTTP_404_NOT_FOUND,
@@ -243,6 +255,9 @@ class TriggerSyncView(APIView):
             if not is_clockodo_enabled():
                 return TestConnectionView._disabled("Clockodo")
             sync_clockodo_full.delay(str(workspace.pk), str(user.pk))
+            record_audit(
+                request, "integration.sync_triggered", workspace=workspace, provider=provider
+            )
             return Response({"ok": True, "queued": True}, status=http_status.HTTP_202_ACCEPTED)
 
         if provider == Provider.LEXWARE:
@@ -252,6 +267,9 @@ class TriggerSyncView(APIView):
             if not is_lexware_enabled():
                 return TestConnectionView._disabled("Lexware")
             sync_lexware_incremental.delay()
+            record_audit(
+                request, "integration.sync_triggered", workspace=workspace, provider=provider
+            )
             return Response({"ok": True, "queued": True}, status=http_status.HTTP_202_ACCEPTED)
 
         return Response(
@@ -326,5 +344,12 @@ class SyncConflictViewSet(viewsets.ReadOnlyModelViewSet[SyncConflict]):
                 "resolution",
                 "updated_at",
             ]
+        )
+        record_audit(
+            request,
+            "integration.conflict_resolved",
+            workspace=conflict.workspace,
+            target=conflict,
+            summary=f"{conflict.provider}:{conflict.resource_type} → {choice}",
         )
         return Response({"ok": True})

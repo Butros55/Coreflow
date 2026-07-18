@@ -17,6 +17,7 @@ from apps.accounts.views import (
     SessionView,
     WorkspaceViewSet,
 )
+from apps.core.audit_views import AuditLogViewSet
 from apps.crm.views import (
     ClientActivityViewSet,
     ClientContactViewSet,
@@ -79,6 +80,7 @@ router.register("appointments", AppointmentViewSet, basename="appointment")
 router.register("files", StoredFileViewSet, basename="file")
 # Integrations
 router.register("sync-conflicts", SyncConflictViewSet, basename="sync-conflict")
+router.register("audit-log", AuditLogViewSet, basename="audit-log")
 
 auth_patterns = [
     path("csrf", CsrfView.as_view(), name="csrf"),

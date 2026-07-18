@@ -27,6 +27,7 @@ from rest_framework import status as http_status
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from apps.core.logging import get_logger
@@ -72,6 +73,10 @@ class ClockodoWebhookView(APIView):
 
     authentication_classes: list[Any] = []
     permission_classes = [AllowAny]
+    # Rate-limited: the endpoint is unauthenticated by nature, so the throttle
+    # is the only thing between it and a flood.
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "webhook"
 
     def post(self, request: Request) -> Response:
         if not settings.CLOCKODO_ENABLED:

@@ -6,11 +6,14 @@ from collections.abc import Sequence
 from typing import Any
 
 from django.db.models import Count, Max, Prefetch, QuerySet, Sum
+from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from apps.accounts.permissions import IsWorkspaceAdmin
 from apps.accounts.utils import require_user
 from apps.core.api import WorkspaceScopedViewSet
+from apps.core.audit import record_audit
 from apps.crm.models import (
     ActivityType,
     Client,
@@ -19,6 +22,7 @@ from apps.crm.models import (
     ClientNote,
     next_client_number,
 )
+from apps.crm.privacy import erase_client, export_client_data
 from apps.crm.serializers import (
     ClientActivitySerializer,
     ClientContactSerializer,
@@ -136,6 +140,55 @@ class ClientViewSet(WorkspaceScopedViewSet):
             description=f"Kunde „{instance.name}“ angelegt",
             actor=require_user(self.request),
         )
+
+    @action(detail=True, methods=["get"], url_path="export", permission_classes=[IsWorkspaceAdmin])
+    def export(self, request: Request, pk: str | None = None) -> Response:
+        """Art. 15 DSGVO data export: one JSON bundle of everything stored."""
+        client = self.get_object()
+        bundle = export_client_data(client)
+        record_audit(
+            request,
+            "privacy.client_exported",
+            workspace=client.workspace,
+            target=client,
+            summary=client.name,
+        )
+        response = Response(bundle)
+        response["Content-Disposition"] = (
+            f'attachment; filename="kunde-{client.client_number or client.pk}-export.json"'
+        )
+        return response
+
+    @action(detail=True, methods=["post"], url_path="erase", permission_classes=[IsWorkspaceAdmin])
+    def erase(self, request: Request, pk: str | None = None) -> Response:
+        """Art. 17 DSGVO erasure — anonymises under § 147 AO legal hold.
+
+        Requires ``{"confirm": "<exact client name>"}`` so a stray click can
+        never destroy data.
+        """
+        client = self.get_object()
+        if str(request.data.get("confirm", "")) != client.name:
+            return Response(
+                {
+                    "error": {
+                        "code": "confirmation_mismatch",
+                        "message": "Zur Bestätigung den exakten Kundennamen senden.",
+                    }
+                },
+                status=400,
+            )
+        client_name = client.name
+        result = erase_client(client)
+        record_audit(
+            request,
+            "privacy.client_erased" if result["mode"] == "anonymized" else "privacy.client_deleted",
+            workspace=self.get_workspace(),
+            target_type="crm.Client",
+            target_id=result["client_id"],
+            summary=client_name,
+            mode=result["mode"],
+        )
+        return Response(result)
 
 
 class ClientContactViewSet(WorkspaceScopedViewSet):

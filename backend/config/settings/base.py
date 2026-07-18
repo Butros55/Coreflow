@@ -90,6 +90,8 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "csp.middleware.CSPMiddleware",
+    # Outside the atomic view boundary: flushes audit rows deferred past a rollback.
+    "apps.core.audit.AuditFlushMiddleware",
     "apps.core.middleware.RequestIDMiddleware",
 ]
 

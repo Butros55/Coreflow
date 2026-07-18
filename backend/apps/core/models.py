@@ -127,3 +127,8 @@ class WorkspaceScopedModel(models.Model):
 
     class Meta:
         abstract = True
+
+
+# Concrete models defined in sibling modules must be imported here so Django's
+# app registry discovers them.
+from apps.core.audit import AuditLogEntry  # noqa: E402,F401

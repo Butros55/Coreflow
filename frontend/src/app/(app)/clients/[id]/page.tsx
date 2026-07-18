@@ -7,6 +7,7 @@ import * as React from 'react';
 import { toast } from 'sonner';
 
 import { PageHeader } from '@/components/layout/app-shell';
+import { api } from '@/lib/api/client';
 import { BillingBadge } from '@/components/time/billing-badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
@@ -238,7 +239,129 @@ function OverviewTab({ client }: { client: NonNullable<ReturnType<typeof useClie
           </PanelBody>
         </Panel>
       </div>
+      <PrivacyPanel client={client} />
     </div>
+  );
+}
+
+function PrivacyPanel({ client }: { client: NonNullable<ReturnType<typeof useClient>['data']> }) {
+  const permissions = usePermissions();
+  const router = useRouter();
+  const [eraseOpen, setEraseOpen] = React.useState(false);
+  const [confirmName, setConfirmName] = React.useState('');
+  const [busy, setBusy] = React.useState<'export' | 'erase' | null>(null);
+
+  if (!permissions.can_manage_settings) return null;
+
+  const downloadExport = async () => {
+    setBusy('export');
+    try {
+      const bundle = await api.get<Record<string, unknown>>(`/clients/${client.id}/export/`);
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `kunde-${client.client_number || client.id}-export.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      toast.success('Datenexport erstellt.');
+    } catch {
+      toast.error('Export fehlgeschlagen.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const erase = async () => {
+    setBusy('erase');
+    try {
+      const result = await api.post<{ mode: 'deleted' | 'anonymized' }>(
+        `/clients/${client.id}/erase/`,
+        { confirm: confirmName },
+      );
+      if (result.mode === 'deleted') {
+        toast.success('Kunde vollständig gelöscht.');
+        router.push('/clients');
+      } else {
+        toast.success('Personenbezogene Daten anonymisiert. Rechnungsdaten bleiben erhalten.');
+        setEraseOpen(false);
+        window.location.reload();
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Löschen fehlgeschlagen.');
+      setBusy(null);
+    }
+  };
+
+  return (
+    <Panel>
+      <PanelHeader>
+        <PanelTitle>Datenschutz (DSGVO)</PanelTitle>
+      </PanelHeader>
+      <PanelBody className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            loading={busy === 'export'}
+            onClick={downloadExport}
+          >
+            Datenauskunft exportieren (Art. 15)
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-[var(--color-danger)]"
+            onClick={() => setEraseOpen(true)}
+          >
+            Kunden löschen / anonymisieren (Art. 17)
+          </Button>
+        </div>
+        <p className="text-[length:var(--text-2xs)] leading-relaxed text-[var(--color-ink-subtle)]">
+          Rechnungen und abgerechnete Zeiten unterliegen der Aufbewahrungspflicht (§ 147 AO / § 257
+          HGB, bis zu 10 Jahre) und werden bei einer Löschung nicht entfernt — stattdessen werden
+          alle personenbezogenen Felder anonymisiert. Ohne Geschäftsunterlagen wird der Kunde
+          vollständig gelöscht.
+        </p>
+      </PanelBody>
+
+      <Dialog open={eraseOpen} onOpenChange={setEraseOpen}>
+        <DialogContent title="Kunden löschen / anonymisieren">
+          <div className="space-y-3">
+            <p className="text-[length:var(--text-sm)] text-[var(--color-ink-muted)]">
+              Kontakte, Notizen und Aktivitäten werden gelöscht, personenbezogene Felder geleert.
+              Diese Aktion kann nicht rückgängig gemacht werden.
+            </p>
+            <div>
+              <Label htmlFor="erase-confirm" required>
+                Zur Bestätigung den Namen „{client.name}“ eingeben
+              </Label>
+              <Input
+                id="erase-confirm"
+                value={confirmName}
+                onChange={(e) => setConfirmName(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button type="button" variant="ghost" onClick={() => setEraseOpen(false)}>
+                Abbrechen
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                className="bg-[var(--color-danger)] hover:bg-[var(--color-danger)]/85"
+                loading={busy === 'erase'}
+                disabled={confirmName !== client.name}
+                onClick={erase}
+              >
+                Unwiderruflich löschen
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </Panel>
   );
 }
 

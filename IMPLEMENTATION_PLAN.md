@@ -26,7 +26,7 @@ PDF/CSV export, change log (P3). Tracked per phase below.
 | 6 | Finance dashboard + tax/reserve forecast | ✅ |
 | 7 | Appointments, files, global activity feed | ✅ |
 | 8 | Settings + integration centre | ✅ |
-| 9 | Security, privacy, production hardening | ⬜ |
+| 9 | Security, privacy, production hardening | ✅ |
 | 10 | Test suite (backend, frontend, E2E) | ⬜ |
 | 11 | Documentation + deployment | ⬜ |
 
@@ -260,12 +260,25 @@ All settings from the brief. Integration page showing live connection state, pro
 success/failure, imported object counts, open conflicts, manual/full sync triggers, webhook status,
 and a privacy-safe error log.
 
-## Phase 9 — Security & privacy hardening
+## Phase 9 — Security & privacy hardening — delivered
 
-CSRF, secure cookies, CSP, rate limiting, server-side permission checks, audit log, safe uploads,
-IDOR/XSS/SQLi defence, no secrets in the frontend or logs, backups + documented restore,
-health/readiness, Celery monitoring, dependency/licence overview, GDPR export/erasure/retention
-with **legal hold** (§147 AO / §257 HGB: 10 years — erasure must not delete invoices).
+Much of the perimeter landed in Phase 0 (CSP middleware, HttpOnly/SameSite cookies, HSTS +
+SSL-redirect + boot-refusal in prod settings, login/webhook/sync/export throttle scopes, secret
+scrubbing in logs, health/readiness, `make backup`/`restore`). Phase 9 added the rest:
+
+* **Audit log** — append-only `AuditLogEntry` + `record_audit()` wired into login (success *and*
+  failure, with IP), logout, password change, workspace updates, membership changes, invoice
+  send/cancel, connection tests, sync triggers, conflict resolution, and the GDPR operations.
+  Failed logins survive the request rollback via a deferred post-response flush middleware.
+  Read-only admin API at `audit-log/` (workspace rows + members' global auth events).
+* **GDPR** — `GET /clients/{id}/export` (Art. 15 bundle: client, contacts, notes, activities,
+  time entries, invoice metadata, projects, appointments) and `POST /clients/{id}/erase`
+  (Art. 17 with **legal hold**: with business records → anonymise personal fields + purge
+  satellites, invoices/entries/projects retained under § 147 AO / § 257 HGB; without → hard
+  delete; name-confirmation required). Surfaced as the Datenschutz panel on the client page.
+* **Webhook throttling** on the unauthenticated Clockodo receiver.
+
+Dependency/licence overview and the retention-policy write-up are documentation → Phase 11.
 
 ## Phase 10 — Tests
 

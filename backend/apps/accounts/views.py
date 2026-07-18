@@ -34,6 +34,7 @@ from apps.accounts.serializers import (
     WorkspaceSummarySerializer,
 )
 from apps.accounts.utils import require_user
+from apps.core.audit import record_audit, record_audit_after_rollback
 from apps.core.logging import get_logger
 
 logger = get_logger("accounts.views")
@@ -84,13 +85,24 @@ class LoginView(APIView):
     )
     def post(self, request: Request) -> Response:
         serializer = LoginSerializer(data=request.data, context={"request": request})
-        serializer.is_valid(raise_exception=True)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except Exception:
+            # Deferred write: the error response rolls this request's
+            # transaction back, and the audit row must survive it.
+            record_audit_after_rollback(
+                request,
+                "auth.login_failed",
+                email=str(request.data.get("email", ""))[:100],
+            )
+            raise
         user = serializer.validated_data["user"]
 
         django_login(request, user)
         # New session id on privilege change — defeats session fixation.
         request.session.cycle_key()
 
+        record_audit(request, "auth.login", actor=user)
         logger.info("login_succeeded", user_id=str(user.pk))
         return Response(_build_session_payload(request))
 
@@ -101,6 +113,7 @@ class LogoutView(APIView):
     @extend_schema(summary="Log out", request=None, responses={204: None})
     def post(self, request: Request) -> Response:
         user_id = str(request.user.pk)
+        record_audit(request, "auth.logout")
         django_logout(request)
         logger.info("logout", user_id=user_id)
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -135,6 +148,7 @@ class PasswordChangeView(APIView):
 
         update_session_auth_hash(request, user)
 
+        record_audit(request, "auth.password_changed")
         logger.info("password_changed", user_id=str(user.pk))
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -206,6 +220,16 @@ class WorkspaceViewSet(viewsets.ModelViewSet[Workspace]):
             is_active=True,
         ).distinct()
 
+    def perform_update(self, serializer: Any) -> None:
+        workspace = serializer.save()
+        record_audit(
+            self.request,
+            "workspace.updated",
+            workspace=workspace,
+            target=workspace,
+            fields=sorted(serializer.validated_data.keys()),
+        )
+
     @extend_schema(
         summary="Switch the default workspace", request=None, responses={200: SessionSerializer}
     )
@@ -274,7 +298,15 @@ class MembershipViewSet(viewsets.ModelViewSet[WorkspaceMembership]):
             raise ValidationError(
                 {"role": _("Transfer ownership to another member before demoting the owner.")}
             )
+        old_role = membership.role
         serializer.save()
+        record_audit(
+            self.request,
+            "member.updated",
+            workspace=membership.workspace,
+            target=membership,
+            summary=f"{membership.user.email}: {old_role} → {new_role}",
+        )
 
     def perform_destroy(self, instance: WorkspaceMembership) -> None:
         if instance.role == WorkspaceRole.OWNER:
@@ -285,3 +317,10 @@ class MembershipViewSet(viewsets.ModelViewSet[WorkspaceMembership]):
             )
         instance.is_active = False
         instance.save(update_fields=["is_active", "updated_at"])
+        record_audit(
+            self.request,
+            "member.removed",
+            workspace=instance.workspace,
+            target=instance,
+            summary=instance.user.email,
+        )
