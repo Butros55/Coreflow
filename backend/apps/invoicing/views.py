@@ -42,6 +42,20 @@ class InvoiceViewSet(WorkspaceScopedViewSet):
 
     def get_queryset(self) -> Any:
         queryset = super().get_queryset()
+        if self.action == "retrieve":
+            from django.db.models import Prefetch
+
+            from apps.invoicing.models import InvoiceTimeEntry
+
+            queryset = queryset.prefetch_related(
+                Prefetch(
+                    "lines__time_entries",
+                    queryset=InvoiceTimeEntry.objects.filter(
+                        invoice_cancelled=False
+                    ).select_related("time_entry"),
+                    to_attr="active_links",
+                )
+            )
         project_id = self.request.query_params.get("project")
         if project_id:
             queryset = queryset.filter(

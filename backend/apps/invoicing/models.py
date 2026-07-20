@@ -185,6 +185,18 @@ class InvoiceLine(WorkspaceScopedModel, BaseModel):
         self.total_price = money(self.quantity * self.unit_price)
 
 
+class InvoiceLinkSource(models.TextChoices):
+    """How a time entry ended up on an invoice line.
+
+    ``lexware_import`` marks matches made by the Lexware full import — the
+    invoice existed in Lexware first and the entries were attached afterwards
+    by the heuristic in ``apps.integrations.lexware.matching``.
+    """
+
+    COMPOSE = "compose", _("Lokal zusammengestellt")
+    LEXWARE_IMPORT = "lexware_import", _("Aus Lexware zugeordnet")
+
+
 class InvoiceTimeEntry(WorkspaceScopedModel, BaseModel):
     """Links a time entry to the invoice line it was billed on.
 
@@ -204,6 +216,9 @@ class InvoiceTimeEntry(WorkspaceScopedModel, BaseModel):
     )
     duration_seconds_taken = models.PositiveIntegerField()
     amount_taken = models.DecimalField(max_digits=12, decimal_places=2)
+    source = models.CharField(
+        max_length=20, choices=InvoiceLinkSource.choices, default=InvoiceLinkSource.COMPOSE
+    )
     # Denormalised so the partial unique index can reference it — a FK to the
     # invoice's status is not indexable directly.
     invoice_cancelled = models.BooleanField(default=False, db_index=True)

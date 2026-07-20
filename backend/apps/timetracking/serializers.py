@@ -39,6 +39,10 @@ class TimeEntrySerializer(WorkspaceScopedSerializer):
         source="service_type.name", read_only=True, default=None
     )
     is_running = serializers.BooleanField(read_only=True)
+    # The active (non-cancelled) invoice this entry is billed on, if any —
+    # including whether the link came from the local composer or was matched
+    # by the Lexware import.
+    invoice_link = serializers.SerializerMethodField()
     # Optional convenience on create: duration instead of ended_at.
     duration_input_seconds = serializers.IntegerField(write_only=True, required=False, min_value=60)
 
@@ -68,6 +72,7 @@ class TimeEntrySerializer(WorkspaceScopedSerializer):
             "billing_status",
             "rounded_from_seconds",
             "is_running",
+            "invoice_link",
             "created_at",
             "updated_at",
         ]
@@ -78,12 +83,28 @@ class TimeEntrySerializer(WorkspaceScopedSerializer):
             "source",
             "computed_amount",
             "rounded_from_seconds",
+            "invoice_link",
             "created_at",
             "updated_at",
         ]
         extra_kwargs = {
             "hourly_rate": {"required": False},
             "billing_status": {"required": False},
+        }
+
+    def get_invoice_link(self, obj: TimeEntry) -> dict[str, Any] | None:
+        links = getattr(obj, "active_invoice_links", None)
+        if links is None:  # list views prefetch; single-object paths fall back
+            links = list(
+                obj.invoice_links.filter(invoice_cancelled=False).select_related("invoice")
+            )
+        if not links:
+            return None
+        link = links[0]
+        return {
+            "invoice_id": str(link.invoice_id),
+            "invoice_number": link.invoice.invoice_number,
+            "source": link.source,
         }
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:

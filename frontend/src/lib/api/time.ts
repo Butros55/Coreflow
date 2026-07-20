@@ -23,6 +23,14 @@ export interface ServiceType {
   active: boolean;
 }
 
+/** Active invoice this entry is billed on. `source === 'lexware_import'`
+ * means the assignment was made by the Lexware import, not the composer. */
+export interface TimeEntryInvoiceLink {
+  invoice_id: string;
+  invoice_number: string;
+  source: 'compose' | 'lexware_import';
+}
+
 export interface TimeEntry {
   id: string;
   user: string;
@@ -39,13 +47,14 @@ export interface TimeEntry {
   started_at: string;
   ended_at: string | null;
   duration_seconds: number;
-  source: 'manual' | 'timer';
+  source: 'manual' | 'timer' | 'clockodo';
   billable: boolean;
   hourly_rate: string;
   computed_amount: string;
   billing_status: BillingStatus;
   rounded_from_seconds: number | null;
   is_running: boolean;
+  invoice_link: TimeEntryInvoiceLink | null;
 }
 
 export function useServiceTypes() {

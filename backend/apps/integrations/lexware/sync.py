@@ -7,8 +7,9 @@ Direction rules (docs/integrations/lexware.md §8):
   Coreflow owns the CRM fields — the import never overwrites an existing
   client (mapping lives in ``ExternalObjectLink``).
 * **Invoices** are Lexware-owned mirrors: number, status, totals, dates come
-  from the voucher. Imported invoices carry no time-entry links (they are
-  historical documents) and are not locally editable (status ≠ draft_local).
+  from the voucher and are not locally editable (status ≠ draft_local). After
+  each mirror lands, open local time entries are conservatively matched to its
+  lines (see ``matching.py``) and marked as billed via Lexware.
 * Everything is idempotent via links + ``sync_hash`` — the import button can
   be pressed any number of times without duplicating a single record.
 
@@ -197,6 +198,7 @@ class LexwareImport:
     # -- invoices ----------------------------------------------------------
 
     def import_invoices(self, client_conn: LexwareClient) -> SyncJob:
+        from apps.integrations.lexware.matching import match_invoice_time_entries
         from apps.integrations.lexware.tasks import _apply_payment_state
 
         job = self._job("invoice")
@@ -207,12 +209,16 @@ class LexwareImport:
         entries = self._iter_spring_pages(
             lambda p: client_conn.voucherlist("invoice", "any", page=p)
         )
+        entries_matched = 0
         for entry in entries:
             external_id = str(entry.get("id"))
             if external_id in links:
                 # Already mirrored (either imported before or created by us) —
-                # the periodic status sync keeps those fresh.
+                # the periodic status sync keeps those fresh. Matching still
+                # runs so mirrors from before the matcher existed (or whose
+                # hours arrived later, e.g. via Clockodo) get their entries.
                 job.records_skipped += 1
+                entries_matched += self._match_existing(links[external_id])
                 continue
             job.records_processed += 1
             try:
@@ -226,6 +232,7 @@ class LexwareImport:
                     _apply_payment_state(client_conn, invoice, external_id)
                     invoice.save()
                 self._create_link("invoice", external_id, "invoicing.Invoice", invoice.pk)
+                entries_matched += match_invoice_time_entries(invoice)
                 job.records_created += 1
             except Exception as exc:
                 job.records_failed += 1
@@ -233,9 +240,28 @@ class LexwareImport:
                     "lexware_invoice_import_failed", external_id=external_id, error=str(exc)
                 )
 
+        if entries_matched:
+            logger.info(
+                "lexware_import_matched_entries",
+                workspace_id=str(self.workspace.pk),
+                entries=entries_matched,
+            )
         job.save()
         job.mark_finished(SyncStatus.SUCCESS if job.records_failed == 0 else SyncStatus.PARTIAL)
         return job
+
+    def _match_existing(self, link: ExternalObjectLink) -> int:
+        """Retrofit time-entry matches onto an already-mirrored invoice."""
+        from apps.integrations.lexware.matching import match_invoice_time_entries
+
+        invoice = Invoice.objects.filter(workspace=self.workspace, pk=link.local_object_id).first()
+        if invoice is None:
+            return 0
+        try:
+            return match_invoice_time_entries(invoice)
+        except Exception as exc:
+            logger.warning("lexware_entry_match_failed", invoice_id=str(invoice.pk), error=str(exc))
+            return 0
 
     def _resolve_invoice_client(
         self,

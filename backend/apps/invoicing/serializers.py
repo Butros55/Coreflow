@@ -11,6 +11,8 @@ from apps.invoicing.models import Invoice, InvoiceLine
 
 
 class InvoiceLineSerializer(WorkspaceScopedSerializer):
+    time_entries = serializers.SerializerMethodField()
+
     class Meta:
         model = InvoiceLine
         fields = [
@@ -23,8 +25,32 @@ class InvoiceLineSerializer(WorkspaceScopedSerializer):
             "tax_rate",
             "total_price",
             "order",
+            "time_entries",
         ]
-        read_only_fields = ["id", "total_price"]
+        read_only_fields = ["id", "total_price", "time_entries"]
+
+    def get_time_entries(self, obj: InvoiceLine) -> list[dict[str, Any]]:
+        """Active time-entry links of this line, with their origin.
+
+        ``source == "lexware_import"`` marks assignments the Lexware import
+        made — the UI badges those so the user can tell them from links the
+        local composer created.
+        """
+        links = getattr(obj, "active_links", None)
+        if links is None:  # detail view prefetches; any other path falls back
+            links = list(
+                obj.time_entries.filter(invoice_cancelled=False).select_related("time_entry")
+            )
+        return [
+            {
+                "time_entry_id": str(link.time_entry_id),
+                "started_at": link.time_entry.started_at.isoformat(),
+                "description": link.time_entry.description,
+                "duration_seconds": link.duration_seconds_taken,
+                "source": link.source,
+            }
+            for link in links
+        ]
 
 
 class InvoiceListSerializer(WorkspaceScopedSerializer):

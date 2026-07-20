@@ -1,6 +1,6 @@
 'use client';
 
-import { FileText, ArrowLeft, Info, Send, Trash2 } from 'lucide-react';
+import { FileText, ArrowLeft, Clock3, Info, Send, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import * as React from 'react';
@@ -24,10 +24,11 @@ import {
   useUpdateInvoice,
   type Invoice,
   type InvoiceLine,
+  type InvoiceLineTimeEntry,
   type TaxType,
 } from '@/lib/api/invoicing';
 import { usePermissions } from '@/lib/session';
-import { formatMoney } from '@/lib/utils';
+import { formatHours, formatMoney } from '@/lib/utils';
 
 export default function InvoiceDetailPage() {
   const params = useParams<{ id: string }>();
@@ -189,6 +190,7 @@ function LinesPanelEditor({
                     {line.description}
                   </div>
                 ) : null}
+                {line.time_entries?.length ? <LineEntriesHint entries={line.time_entries} /> : null}
               </Td>
               <Td className="text-right">
                 {canEdit ? (
@@ -228,6 +230,36 @@ function LinesPanelEditor({
         </tbody>
       </DataTable>
     </Panel>
+  );
+}
+
+function LineEntriesHint({ entries }: { entries: InvoiceLineTimeEntry[] }) {
+  const fromLexware = entries.some((entry) => entry.source === 'lexware_import');
+  const totalSeconds = entries.reduce((sum, entry) => sum + entry.duration_seconds, 0);
+  const tooltip = entries
+    .map(
+      (entry) =>
+        `${new Date(entry.started_at).toLocaleDateString('de-DE')} · ${formatHours(
+          entry.duration_seconds / 3600,
+        )}${entry.description ? ` · ${entry.description}` : ''}`,
+    )
+    .join('\n');
+  return (
+    <div
+      title={tooltip}
+      className="mt-1 flex flex-wrap items-center gap-1.5 text-[length:var(--text-2xs)] text-[var(--color-ink-subtle)]"
+    >
+      <Clock3 className="size-3" aria-hidden />
+      <span>
+        {entries.length === 1 ? '1 Zeiteintrag' : `${entries.length} Zeiteinträge`} ·{' '}
+        {formatHours(totalSeconds / 3600)}
+      </span>
+      {fromLexware ? (
+        <span className="rounded-[var(--radius-xs)] bg-[var(--color-info-soft)] px-1.5 py-px font-medium text-[var(--color-info)]">
+          aus Lexware zugeordnet
+        </span>
+      ) : null}
+    </div>
   );
 }
 

@@ -473,6 +473,17 @@ The 5-minute overlap covers clock skew; idempotency via `sync_hash` makes the ov
 Because of the 10,000-element window (§3.2), full sync iterates **month by month** from the earliest
 invoice date. Progress is recorded in `SyncJob` so a failure resumes rather than restarting.
 
+### Time-entry matching on import
+
+After an invoice mirror lands (and again on every re-run, for mirrors that have no links yet),
+`apps/integrations/lexware/matching.py` assigns its hour lines to open local time entries — same
+client, inside the mirrored service period, and only when the hours add up **exactly**; anything
+ambiguous stays unmatched rather than guessed. Created links carry `source="lexware_import"` (vs.
+`compose` for the local composer), which the UI shows as an "aus Lexware" marker on both the invoice
+lines and the time entries. Matched entries move to `billed` (finalised vouchers) or
+`invoice_draft_created` (remote drafts), closing the double-billing gap for hours that were invoiced
+in Lexware before Coreflow existed.
+
 ### Conflict handling
 
 Lexware wins for accounting fields — always. A `SyncConflict` is raised only where Coreflow is

@@ -3,6 +3,7 @@ correctly linked, idempotent, and triggered through the confirmed UI action."""
 
 from __future__ import annotations
 
+import datetime as dt
 from decimal import Decimal
 from typing import Any
 
@@ -11,16 +12,19 @@ import pytest
 import respx
 from django.test import override_settings
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework.test import APIClient
 
-from apps.accounts.models import Workspace
+from apps.accounts.models import User, Workspace
 from apps.core.audit import AuditLogEntry
+from apps.core.money import money
 from apps.crm.models import Client
 from apps.integrations.base import TokenBucketLimiter
 from apps.integrations.lexware.client import LexwareClient
 from apps.integrations.lexware.sync import LexwareImport
 from apps.integrations.models import ExternalObjectLink, Provider, ProviderProfile
-from apps.invoicing.models import Invoice, InvoiceStatus
+from apps.invoicing.models import Invoice, InvoiceLinkSource, InvoiceStatus, InvoiceTimeEntry
+from apps.timetracking.models import BillingStatus, EntrySource, ServiceType, TimeEntry
 
 pytestmark = pytest.mark.django_db
 
@@ -168,27 +172,31 @@ class TestContactImport:
         assert job2.records_created == 0
 
 
-class TestInvoiceImport:
-    def _mock_contact_and_lists(self, invoices: list[dict[str, Any]]) -> None:
-        respx.get(f"{LEXWARE}/v1/contacts").mock(
-            return_value=httpx.Response(200, json=spring_page([contact("lex-contact-1")]))
+def mock_contact_and_lists(invoices: list[dict[str, Any]]) -> None:
+    respx.get(f"{LEXWARE}/v1/contacts").mock(
+        return_value=httpx.Response(200, json=spring_page([contact("lex-contact-1")]))
+    )
+    respx.get(f"{LEXWARE}/v1/voucherlist").mock(
+        return_value=httpx.Response(
+            200,
+            json=spring_page([{"id": inv["id"], "voucherType": "invoice"} for inv in invoices]),
         )
-        respx.get(f"{LEXWARE}/v1/voucherlist").mock(
+    )
+    for inv in invoices:
+        respx.get(f"{LEXWARE}/v1/invoices/{inv['id']}").mock(
+            return_value=httpx.Response(200, json=inv)
+        )
+        respx.get(f"{LEXWARE}/v1/payments/{inv['id']}").mock(
             return_value=httpx.Response(
                 200,
-                json=spring_page([{"id": inv["id"], "voucherType": "invoice"} for inv in invoices]),
+                json={"paymentStatus": "balanced", "openAmount": 0, "paidDate": "2026-05-20"},
             )
         )
-        for inv in invoices:
-            respx.get(f"{LEXWARE}/v1/invoices/{inv['id']}").mock(
-                return_value=httpx.Response(200, json=inv)
-            )
-            respx.get(f"{LEXWARE}/v1/payments/{inv['id']}").mock(
-                return_value=httpx.Response(
-                    200,
-                    json={"paymentStatus": "balanced", "openAmount": 0, "paidDate": "2026-05-20"},
-                )
-            )
+
+
+class TestInvoiceImport:
+    def _mock_contact_and_lists(self, invoices: list[dict[str, Any]]) -> None:
+        mock_contact_and_lists(invoices)
 
     @respx.mock
     def test_paid_invoice_is_mirrored_and_attached_to_the_client(
@@ -268,6 +276,228 @@ class TestInvoiceImport:
         invoice = Invoice.objects.get(workspace=workspace)
         assert invoice.client == client
         assert invoice.status == InvoiceStatus.DRAFT_REMOTE  # remote draft, not editable here
+
+
+def _time_entry(
+    workspace: Workspace,
+    user: User,
+    client: Client,
+    *,
+    hours: float,
+    day: str,
+    service_type: ServiceType | None = None,
+    description: str = "",
+) -> TimeEntry:
+    started = timezone.make_aware(dt.datetime.fromisoformat(f"{day}T09:00:00"))
+    seconds = int(hours * 3600)
+    return TimeEntry.objects.create(
+        workspace=workspace,
+        user=user,
+        client=client,
+        service_type=service_type,
+        description=description,
+        started_at=started,
+        ended_at=started + dt.timedelta(seconds=seconds),
+        duration_seconds=seconds,
+        source=EntrySource.MANUAL,
+        billable=True,
+        hourly_rate=Decimal("95.00"),
+        computed_amount=money(Decimal(seconds) / 3600 * Decimal("95.00")),
+        billing_status=BillingStatus.OPEN,
+    )
+
+
+SERVICE_PERIOD = {
+    "shippingDate": "2026-05-01T00:00:00.000+02:00",
+    "shippingEndDate": "2026-05-10T00:00:00.000+02:00",
+    "shippingType": "serviceperiod",
+}
+
+
+class TestTimeEntryMatching:
+    """Imported lines are matched to open entries — exactly or not at all."""
+
+    def _run_import(self, workspace: Workspace, invoices: list[dict[str, Any]]) -> None:
+        mock_contact_and_lists(invoices)
+        with LexwareClient() as conn:
+            importer = LexwareImport(workspace)
+            importer.import_contacts(conn)
+            importer.import_invoices(conn)
+
+    @respx.mock
+    def test_service_line_matches_entries_and_marks_them_lexware_billed(
+        self, workspace: Workspace, user: User
+    ) -> None:
+        service = ServiceType.objects.create(workspace=workspace, name="Entwicklung")
+        client = Client.objects.create(workspace=workspace, name="Import AG")
+        first = _time_entry(
+            workspace, user, client, hours=6, day="2026-05-03", service_type=service
+        )
+        second = _time_entry(
+            workspace, user, client, hours=4, day="2026-05-05", service_type=service
+        )
+
+        self._run_import(
+            workspace, [remote_invoice("lex-inv-1", shippingConditions=SERVICE_PERIOD)]
+        )
+
+        invoice = Invoice.objects.get(workspace=workspace)
+        assert invoice.period_start == dt.date(2026, 5, 1)  # mirrored from shipping
+        assert invoice.period_end == dt.date(2026, 5, 10)
+
+        links = InvoiceTimeEntry.objects.filter(invoice=invoice)
+        assert links.count() == 2
+        assert {link.time_entry_id for link in links} == {first.pk, second.pk}
+        assert all(link.source == InvoiceLinkSource.LEXWARE_IMPORT for link in links)
+        assert all(link.invoice_line.title == "Entwicklung" for link in links)
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        assert first.billing_status == BillingStatus.BILLED  # invoice is paid
+        assert second.billing_status == BillingStatus.BILLED
+
+    @respx.mock
+    def test_draft_invoice_reserves_entries_instead_of_billing(
+        self, workspace: Workspace, user: User
+    ) -> None:
+        service = ServiceType.objects.create(workspace=workspace, name="Entwicklung")
+        client = Client.objects.create(workspace=workspace, name="Import AG")
+        entry = _time_entry(
+            workspace, user, client, hours=10, day="2026-05-03", service_type=service
+        )
+
+        self._run_import(
+            workspace,
+            [remote_invoice("lex-inv-1", voucherStatus="draft", shippingConditions=SERVICE_PERIOD)],
+        )
+
+        entry.refresh_from_db()
+        assert entry.billing_status == BillingStatus.DRAFT_CREATED
+        link = InvoiceTimeEntry.objects.get(time_entry=entry)
+        assert link.source == InvoiceLinkSource.LEXWARE_IMPORT
+
+    @respx.mock
+    def test_hours_mismatch_creates_no_links(self, workspace: Workspace, user: User) -> None:
+        """8 tracked vs 10 billed: guessing which hours were billed is wrong."""
+        service = ServiceType.objects.create(workspace=workspace, name="Entwicklung")
+        client = Client.objects.create(workspace=workspace, name="Import AG")
+        entry = _time_entry(
+            workspace, user, client, hours=8, day="2026-05-03", service_type=service
+        )
+
+        self._run_import(
+            workspace, [remote_invoice("lex-inv-1", shippingConditions=SERVICE_PERIOD)]
+        )
+
+        entry.refresh_from_db()
+        assert entry.billing_status == BillingStatus.OPEN
+        assert InvoiceTimeEntry.objects.count() == 0
+
+    @respx.mock
+    def test_ambiguous_single_entry_match_is_skipped(
+        self, workspace: Workspace, user: User
+    ) -> None:
+        """Two open 10h entries, line says 10h — either could be it, so neither is."""
+        client = Client.objects.create(workspace=workspace, name="Import AG")
+        _time_entry(workspace, user, client, hours=10, day="2026-05-03")
+        _time_entry(workspace, user, client, hours=10, day="2026-05-05")
+
+        self._run_import(
+            workspace, [remote_invoice("lex-inv-1", shippingConditions=SERVICE_PERIOD)]
+        )
+
+        assert InvoiceTimeEntry.objects.count() == 0
+        assert not TimeEntry.objects.filter(billing_status=BillingStatus.BILLED).exists()
+
+    @respx.mock
+    def test_unambiguous_single_entry_matches_without_service_type(
+        self, workspace: Workspace, user: User
+    ) -> None:
+        client = Client.objects.create(workspace=workspace, name="Import AG")
+        entry = _time_entry(workspace, user, client, hours=10, day="2026-05-03")
+        _time_entry(workspace, user, client, hours=3, day="2026-05-04")  # different hours
+
+        self._run_import(
+            workspace, [remote_invoice("lex-inv-1", shippingConditions=SERVICE_PERIOD)]
+        )
+
+        entry.refresh_from_db()
+        assert entry.billing_status == BillingStatus.BILLED
+        assert InvoiceTimeEntry.objects.get().time_entry_id == entry.pk
+
+    @respx.mock
+    def test_entries_outside_service_period_stay_open(
+        self, workspace: Workspace, user: User
+    ) -> None:
+        service = ServiceType.objects.create(workspace=workspace, name="Entwicklung")
+        client = Client.objects.create(workspace=workspace, name="Import AG")
+        entry = _time_entry(
+            workspace, user, client, hours=10, day="2026-06-20", service_type=service
+        )
+
+        self._run_import(
+            workspace, [remote_invoice("lex-inv-1", shippingConditions=SERVICE_PERIOD)]
+        )
+
+        entry.refresh_from_db()
+        assert entry.billing_status == BillingStatus.OPEN
+        assert InvoiceTimeEntry.objects.count() == 0
+
+    @respx.mock
+    def test_rerun_matches_previously_imported_invoice(
+        self, workspace: Workspace, user: User
+    ) -> None:
+        """Mirrors imported before the matcher existed get their entries later."""
+        self._run_import(
+            workspace, [remote_invoice("lex-inv-1", shippingConditions=SERVICE_PERIOD)]
+        )
+        assert InvoiceTimeEntry.objects.count() == 0  # nothing tracked yet
+
+        service = ServiceType.objects.create(workspace=workspace, name="Entwicklung")
+        client = Client.objects.get(workspace=workspace, name="Import AG")
+        entry = _time_entry(
+            workspace, user, client, hours=10, day="2026-05-03", service_type=service
+        )
+
+        self._run_import(
+            workspace, [remote_invoice("lex-inv-1", shippingConditions=SERVICE_PERIOD)]
+        )
+
+        assert Invoice.objects.count() == 1  # still no duplicate mirror
+        entry.refresh_from_db()
+        assert entry.billing_status == BillingStatus.BILLED
+        assert InvoiceTimeEntry.objects.get().source == InvoiceLinkSource.LEXWARE_IMPORT
+
+    @respx.mock
+    def test_matched_entries_are_not_reused_for_a_second_line(
+        self, workspace: Workspace, user: User
+    ) -> None:
+        dev = ServiceType.objects.create(workspace=workspace, name="Entwicklung")
+        client = Client.objects.create(workspace=workspace, name="Import AG")
+        dev_entry = _time_entry(
+            workspace, user, client, hours=10, day="2026-05-03", service_type=dev
+        )
+        advice_entry = _time_entry(workspace, user, client, hours=10, day="2026-05-04")
+
+        two_lines = remote_invoice("lex-inv-1", shippingConditions=SERVICE_PERIOD)
+        two_lines["lineItems"].insert(
+            1,
+            {
+                "type": "custom",
+                "name": "Beratung",
+                "quantity": 10,
+                "unitName": "Std.",
+                "unitPrice": {"currency": "EUR", "netAmount": 95.0, "taxRatePercentage": 19},
+            },
+        )
+        self._run_import(workspace, [two_lines])
+
+        invoice = Invoice.objects.get(workspace=workspace)
+        links = InvoiceTimeEntry.objects.filter(invoice=invoice).select_related("invoice_line")
+        by_line = {link.invoice_line.title: link.time_entry_id for link in links}
+        # "Entwicklung" took its service-type bucket; the 10h "Beratung" line
+        # then found exactly one remaining 10h entry.
+        assert by_line == {"Entwicklung": dev_entry.pk, "Beratung": advice_entry.pk}
 
 
 class TestImportTrigger:

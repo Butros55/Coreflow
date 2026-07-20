@@ -15,7 +15,7 @@ import * as React from 'react';
 import { toast } from 'sonner';
 
 import { PageHeader } from '@/components/layout/app-shell';
-import { BillingBadge } from '@/components/time/billing-badge';
+import { BillingBadge, InvoiceLinkChip } from '@/components/time/billing-badge';
 import { Button } from '@/components/ui/button';
 import { DeleteConfirmationDialog } from '@/components/ui/delete-confirmation-dialog';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
@@ -429,7 +429,10 @@ function DayTable({ entries, canEdit }: { entries: TimeEntry[]; canEdit: boolean
                   {entry.billable ? formatMoney(entry.computed_amount) : '—'}
                 </Td>
                 <Td>
-                  <BillingBadge status={entry.billing_status} />
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <BillingBadge status={entry.billing_status} />
+                    {entry.invoice_link ? <InvoiceLinkChip link={entry.invoice_link} /> : null}
+                  </div>
                 </Td>
                 {canEdit ? (
                   <Td className="text-right">

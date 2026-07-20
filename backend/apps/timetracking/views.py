@@ -54,8 +54,23 @@ class TimeEntryFilter(django_filters.FilterSet):
         }
 
 
+def _active_invoice_links_prefetch() -> Any:
+    """Prefetch the entry's active invoice link so lists stay two queries."""
+    from django.db.models import Prefetch
+
+    from apps.invoicing.models import InvoiceTimeEntry
+
+    return Prefetch(
+        "invoice_links",
+        queryset=InvoiceTimeEntry.objects.filter(invoice_cancelled=False).select_related("invoice"),
+        to_attr="active_invoice_links",
+    )
+
+
 class TimeEntryViewSet(WorkspaceScopedViewSet):
-    queryset = TimeEntry.objects.select_related("client", "project", "task", "service_type", "user")
+    queryset = TimeEntry.objects.select_related(
+        "client", "project", "task", "service_type", "user"
+    ).prefetch_related(_active_invoice_links_prefetch())
     serializer_class = TimeEntrySerializer
     filterset_class = TimeEntryFilter
     search_fields = ["description", "client__name", "project__name"]

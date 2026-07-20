@@ -35,6 +35,16 @@ export const TAX_TYPE_LABELS: Record<TaxType, string> = {
   vatfree: 'Steuerfrei (§19 UStG)',
 };
 
+/** A time entry billed on an invoice line. `source === 'lexware_import'`
+ * marks assignments the Lexware import matched automatically. */
+export interface InvoiceLineTimeEntry {
+  time_entry_id: string;
+  started_at: string;
+  description: string;
+  duration_seconds: number;
+  source: 'compose' | 'lexware_import';
+}
+
 export interface InvoiceLine {
   id: string;
   title: string;
@@ -45,6 +55,7 @@ export interface InvoiceLine {
   tax_rate: string;
   total_price: string;
   order: number;
+  time_entries: InvoiceLineTimeEntry[];
 }
 
 export interface InvoiceListItem {

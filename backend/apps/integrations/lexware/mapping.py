@@ -165,6 +165,17 @@ def apply_lexware_invoice(invoice: Invoice, remote: dict[str, Any]) -> None:
         with suppress(ValueError):
             invoice.invoice_date = dt.date.fromisoformat(str(remote["voucherDate"])[:10])
 
+    # Service period from shippingConditions. For invoices we composed this is
+    # a round-trip of our own dates; for imported vouchers it is the only
+    # period source — and the anchor the time-entry matcher filters by.
+    shipping = remote.get("shippingConditions") or {}
+    ship_start = shipping.get("shippingDate")
+    ship_end = shipping.get("shippingEndDate") or ship_start
+    if ship_start:
+        with suppress(ValueError):
+            invoice.period_start = dt.date.fromisoformat(str(ship_start)[:10])
+            invoice.period_end = dt.date.fromisoformat(str(ship_end)[:10])
+
     total = remote.get("totalPrice") or {}
     if total.get("totalNetAmount") is not None:
         invoice.net_amount = money(Decimal(str(total["totalNetAmount"])))
