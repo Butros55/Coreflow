@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import * as React from 'react';
 
 import { API_BASE, api, type Paginated } from '@/lib/api/client';
 
@@ -94,6 +95,40 @@ export function useTimeEntries(params: TimeEntryListParams) {
         query: { ...params, page_size: 200, ordering: '-started_at' },
       }),
   });
+}
+
+// The server caps page_size at 200; a month or year view needs everything in
+// range, so pages are followed automatically (bounded — 20 pages = 4000 rows).
+const MAX_RANGE_PAGES = 20;
+
+/** All entries in a range, following pagination. For month/year views. */
+export function useTimeEntriesRange(params: TimeEntryListParams) {
+  const query = useInfiniteQuery({
+    queryKey: ['time-entries', 'range', params],
+    queryFn: ({ pageParam }) =>
+      api.get<Paginated<TimeEntry>>('/time-entries/', {
+        query: { ...params, page: pageParam, page_size: 200, ordering: '-started_at' },
+      }),
+    initialPageParam: 1,
+    getNextPageParam: (last) =>
+      last.next && last.page < MAX_RANGE_PAGES ? last.page + 1 : undefined,
+  });
+
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = query;
+  React.useEffect(() => {
+    if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  const entries = React.useMemo(
+    () => query.data?.pages.flatMap((page) => page.results) ?? [],
+    [query.data],
+  );
+  return {
+    entries,
+    isLoading: query.isLoading,
+    /** True while later pages are still streaming in. */
+    isFillingUp: Boolean(hasNextPage) || isFetchingNextPage,
+  };
 }
 
 export interface TimeEntryPayload {

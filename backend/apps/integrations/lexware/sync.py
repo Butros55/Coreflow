@@ -135,6 +135,10 @@ class LexwareImport:
             external_id = str(contact.get("id"))
             if external_id in links:
                 job.records_skipped += 1
+                # Clients imported before richer master data existed (contact
+                # persons, tax ids) get the gaps filled — empty fields only,
+                # Coreflow-owned CRM data is never overwritten.
+                self._backfill_client_master_data(links[external_id], contact)
                 continue
             outcome = self._link_or_create_client(contact)
             if outcome == "created":
@@ -163,10 +167,12 @@ class LexwareImport:
             .first()
         )
         if match is not None:
-            self._create_link("contact", external_id, "crm.Client", match.pk)
+            link = self._create_link("contact", external_id, "crm.Client", match.pk)
+            self._backfill_client_master_data(link, contact)
             return "linked"
 
         billing = _first(contact.get("addresses", {}).get("billing"))
+        company = contact.get("company") or {}
         customer_number = str((contact.get("roles", {}).get("customer") or {}).get("number") or "")
         # Never collide with the local K-… numbering; on clash keep it blank.
         if (
@@ -190,10 +196,60 @@ class LexwareImport:
                 billing_zip=str(billing.get("zip") or ""),
                 billing_city=str(billing.get("city") or ""),
                 billing_country_code=str(billing.get("countryCode") or "DE")[:2],
+                tax_number=str(company.get("taxNumber") or ""),
+                vat_id=str(company.get("vatRegistrationId") or ""),
                 notes=str(contact.get("note") or ""),
             )
             self._create_link("contact", external_id, "crm.Client", local_client.pk)
+            self._import_contact_persons(local_client, contact)
         return "created"
+
+    def _backfill_client_master_data(
+        self, link: ExternalObjectLink, contact: dict[str, Any]
+    ) -> None:
+        """Fill EMPTY client fields from Lexware; local values always win."""
+        client = Client.objects.filter(workspace=self.workspace, pk=link.local_object_id).first()
+        if client is None:
+            return
+        company = contact.get("company") or {}
+        updates: list[str] = []
+        fillable = {
+            "tax_number": str(company.get("taxNumber") or ""),
+            "vat_id": str(company.get("vatRegistrationId") or ""),
+            "email": _first_of_any(contact.get("emailAddresses")),
+            "phone": _first_of_any(contact.get("phoneNumbers")),
+        }
+        for field, value in fillable.items():
+            if value and not getattr(client, field):
+                setattr(client, field, value)
+                updates.append(field)
+        if updates:
+            client.save(update_fields=[*updates, "updated_at"])
+        if not client.contacts.exists():
+            self._import_contact_persons(client, contact)
+
+    def _import_contact_persons(self, client: Client, contact: dict[str, Any]) -> None:
+        """Mirror Lexware contact persons as CRM contacts (once, never merged)."""
+        from apps.crm.models import ClientContact
+
+        persons = (contact.get("company") or {}).get("contactPersons") or []
+        has_primary = client.contacts.filter(is_primary=True).exists()
+        for person in persons:
+            first = str(person.get("firstName") or "").strip()
+            last = str(person.get("lastName") or "").strip()
+            if not (first or last):
+                continue
+            is_primary = bool(person.get("primary")) and not has_primary
+            ClientContact.objects.create(
+                workspace=self.workspace,
+                client=client,
+                first_name=first,
+                last_name=last,
+                email=str(person.get("emailAddress") or ""),
+                phone=str(person.get("phoneNumber") or ""),
+                is_primary=is_primary,
+            )
+            has_primary = has_primary or is_primary
 
     # -- invoices ----------------------------------------------------------
 
@@ -232,7 +288,9 @@ class LexwareImport:
                     _apply_payment_state(client_conn, invoice, external_id)
                     invoice.save()
                 self._create_link("invoice", external_id, "invoicing.Invoice", invoice.pk)
-                entries_matched += match_invoice_time_entries(invoice)
+                entries_matched += match_invoice_time_entries(
+                    invoice, fallback_user=self.triggered_by
+                )
                 job.records_created += 1
             except Exception as exc:
                 job.records_failed += 1
@@ -258,7 +316,7 @@ class LexwareImport:
         if invoice is None:
             return 0
         try:
-            return match_invoice_time_entries(invoice)
+            return match_invoice_time_entries(invoice, fallback_user=self.triggered_by)
         except Exception as exc:
             logger.warning("lexware_entry_match_failed", invoice_id=str(invoice.pk), error=str(exc))
             return 0

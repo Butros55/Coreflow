@@ -22,20 +22,51 @@ logger = get_logger("integrations.lexware.tasks")
 
 @shared_task(name="apps.integrations.lexware.tasks.sync_lexware_incremental")
 def sync_lexware_incremental() -> dict[str, Any]:
-    """Beat: refresh status + payments of non-final mirrored invoices."""
+    """Beat: keep the Lexware mirror fresh without any manual click.
+
+    Two passes per connected workspace:
+    1. refresh status + payments of non-final mirrored invoices,
+    2. the idempotent full import — new contacts/invoices land automatically,
+       master-data gaps are backfilled, and time entries are matched or
+       reconstructed. Unchanged records are link-skipped, so a quiet run costs
+       two listing requests.
+    """
     from apps.integrations.lexware.client import is_lexware_enabled
 
     if not is_lexware_enabled():
         return {"status": "disabled"}
 
     from apps.accounts.models import Workspace
+    from apps.integrations.models import ProviderProfile
 
     results: dict[str, Any] = {}
     for workspace in Workspace.objects.filter(is_active=True):
         summary = sync_invoice_statuses(workspace)
         if summary:
             results[str(workspace.pk)] = summary
+        # Import only into workspaces that connected Lexware — the API key is
+        # instance-wide and would otherwise clone the account into every tenant.
+        if not ProviderProfile.objects.filter(
+            workspace=workspace, provider=Provider.LEXWARE
+        ).exists():
+            continue
+        try:
+            _run_background_import(workspace)
+        except Exception as exc:
+            logger.warning(
+                "lexware_background_import_failed",
+                workspace_id=str(workspace.pk),
+                error=str(exc),
+            )
     return {"status": "ok", "workspaces": results}
+
+
+def _run_background_import(workspace: Any) -> None:
+    from apps.integrations.lexware.client import LexwareClient
+    from apps.integrations.lexware.sync import LexwareImport
+
+    with LexwareClient() as client:
+        LexwareImport(workspace, trigger="scheduled").full_import(client)
 
 
 def sync_invoice_statuses(workspace: Any) -> dict[str, int] | None:

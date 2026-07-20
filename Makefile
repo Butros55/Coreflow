@@ -121,6 +121,16 @@ frontend-clean: ## Fix stale UI after updates: wipe the cached Next.js build and
 	-docker volume rm coreflow_frontend-next
 	$(COMPOSE) up -d frontend
 
+.PHONY: frontend-prod
+frontend-prod: ## Snappy UI for daily use: build & run the production frontend (no live reload)
+	$(COMPOSE) rm -sf frontend
+	$(COMPOSE) --profile prod up -d --build frontend-prod
+
+.PHONY: frontend-dev
+frontend-dev: ## Back to the live-reload dev frontend
+	-$(COMPOSE) --profile prod rm -sf frontend-prod
+	$(COMPOSE) up -d frontend
+
 .PHONY: bootstrap
 bootstrap: ## Productive user+workspace, NO demo data: make bootstrap EMAIL=you@x.de NAME="Meine Firma"
 	$(if $(strip $(EMAIL)),,$(error EMAIL is required. Usage: make bootstrap EMAIL=you@x.de NAME="Meine Firma" [PASSWORD=...] [SMALL_BUSINESS=1]))

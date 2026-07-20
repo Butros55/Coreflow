@@ -1,4 +1,4 @@
-"""Attach open time entries to invoices imported from Lexware.
+"""Attach time entries to invoices imported from Lexware.
 
 The full import mirrors historical invoices — but the hours they billed often
 still sit in Coreflow as "open" (tracked locally or imported from Clockodo) and
@@ -24,6 +24,13 @@ rather than falling through to a looser strategy):
 4. **Einzeleintrag**: exactly one open entry has exactly the line's hours.
 5. **Gesamtsumme**: the invoice has exactly one hour line and *all* open
    entries in the period sum to it (the composer's lump-sum format).
+
+When the client has **no** open entries in the period at all (typical after a
+fresh import: the hours were never tracked here), the hour lines are
+reconstructed as time entries instead — ``source="lexware"``, already billed,
+so the tracked history shows what Lexware knows. Reconstruction never runs
+alongside matching: with local candidates present, inventing additional hours
+would double-count the same work.
 """
 
 from __future__ import annotations
@@ -34,14 +41,16 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from django.db import transaction
+from django.utils import timezone as dj_timezone
 
 from apps.core.logging import get_logger
 from apps.core.money import money, seconds_to_hours
 from apps.invoicing.models import Invoice, InvoiceLinkSource, InvoiceStatus, InvoiceTimeEntry
 from apps.invoicing.services import SELECTABLE_STATUSES, mark_entries_billed
-from apps.timetracking.models import BillingStatus, TimeEntry
+from apps.timetracking.models import BillingStatus, EntrySource, ServiceType, TimeEntry
 
 if TYPE_CHECKING:
+    from apps.accounts.models import User
     from apps.invoicing.models import InvoiceLine
 
 logger = get_logger("integrations.lexware.matching")
@@ -104,11 +113,13 @@ def _bucket_for_line(line: InvoiceLine, pool: list[TimeEntry]) -> list[TimeEntry
 
 
 @transaction.atomic
-def match_invoice_time_entries(invoice: Invoice) -> int:
-    """Assign open time entries to an imported invoice's lines.
+def match_invoice_time_entries(invoice: Invoice, *, fallback_user: User | None = None) -> int:
+    """Assign (or reconstruct) time entries for an imported invoice's lines.
 
     Returns the number of entries linked. Idempotent: an invoice that already
     has active links, or entries that are no longer open, are never touched.
+    ``fallback_user`` owns reconstructed entries; defaults to the workspace's
+    highest-ranking active member.
     """
     if invoice.status not in MATCHABLE_STATUSES:
         return 0
@@ -119,6 +130,10 @@ def match_invoice_time_entries(invoice: Invoice) -> int:
     period_end = invoice.period_end
     if period_start is None and period_end is None and invoice.invoice_date is None:
         # No date anchor at all — any match would be a guess.
+        return 0
+
+    hour_lines = [line for line in invoice.lines.all() if _is_hour_line(line)]
+    if not hour_lines:
         return 0
 
     # Same locking discipline as the composer, so a concurrent compose and this
@@ -136,10 +151,39 @@ def match_invoice_time_entries(invoice: Invoice) -> int:
         .select_related("service_type")
         if _in_period(entry, period_start, period_end, invoice.invoice_date)
     ]
-    if not candidates:
+
+    if candidates:
+        linked = _match_existing(invoice, hour_lines, candidates)
+        mode = "matched"
+    else:
+        linked = _reconstruct_from_lines(invoice, hour_lines, fallback_user)
+        mode = "reconstructed"
+    if not linked:
         return 0
 
-    hour_lines = [line for line in invoice.lines.all() if _is_hour_line(line)]
+    if invoice.status == InvoiceStatus.DRAFT_REMOTE:
+        TimeEntry.objects.filter(pk__in=[e.pk for e in linked]).update(
+            billing_status=BillingStatus.DRAFT_CREATED
+        )
+    else:
+        # Finalised in Lexware → billed here (also pushes billable=2 for
+        # Clockodo-sourced entries, same as the local finalisation path).
+        mark_entries_billed(invoice)
+
+    logger.info(
+        "lexware_time_entries_matched",
+        invoice_id=str(invoice.pk),
+        invoice_number=invoice.invoice_number,
+        entries=len(linked),
+        mode=mode,
+    )
+    return len(linked)
+
+
+def _match_existing(
+    invoice: Invoice, hour_lines: list[InvoiceLine], candidates: list[TimeEntry]
+) -> list[TimeEntry]:
+    """Link open local entries to the lines they were billed on."""
     pool = list(candidates)
     matched: list[tuple[InvoiceLine, list[TimeEntry]]] = []
 
@@ -154,9 +198,6 @@ def match_invoice_time_entries(invoice: Invoice) -> int:
         bucket_ids = {e.pk for e in bucket}
         pool = [e for e in pool if e.pk not in bucket_ids]
 
-    if not matched:
-        return 0
-
     for line, bucket in matched:
         for entry in bucket:
             InvoiceTimeEntry.objects.create(
@@ -168,25 +209,87 @@ def match_invoice_time_entries(invoice: Invoice) -> int:
                 amount_taken=entry.computed_amount,
                 source=InvoiceLinkSource.LEXWARE_IMPORT,
             )
+    return [entry for _, bucket in matched for entry in bucket]
 
-    matched_ids = [entry.pk for _, bucket in matched for entry in bucket]
-    if invoice.status == InvoiceStatus.DRAFT_REMOTE:
-        TimeEntry.objects.filter(pk__in=matched_ids).update(
-            billing_status=BillingStatus.DRAFT_CREATED
+
+def _reconstruct_from_lines(
+    invoice: Invoice, hour_lines: list[InvoiceLine], fallback_user: User | None
+) -> list[TimeEntry]:
+    """Create billed time entries from hour lines that have no local history.
+
+    The invoice is the only record of these hours, so the tracked history is
+    rebuilt from it: one entry per line, stacked from 09:00 of the service
+    period's first day, rate and amount taken from the line.
+    """
+    user = fallback_user or _default_import_user(invoice)
+    if user is None:
+        logger.warning("lexware_entry_reconstruction_skipped_no_user", invoice_id=str(invoice.pk))
+        return []
+
+    day = invoice.period_start or invoice.period_end or invoice.invoice_date
+    assert day is not None  # guarded by the caller's date-anchor check
+    cursor = dj_timezone.make_aware(dt.datetime.combine(day, dt.time(9, 0)))
+
+    created: list[TimeEntry] = []
+    for line in hour_lines:
+        seconds = int(Decimal(line.quantity) * 3600)
+        ends = cursor + dt.timedelta(seconds=seconds)
+        service_type = ServiceType.objects.filter(
+            workspace=invoice.workspace, name__iexact=line.title.strip()
+        ).first()
+        description = line.title
+        if line.description:
+            description = f"{line.title} — {line.description}"
+        entry = TimeEntry.objects.create(
+            workspace=invoice.workspace,
+            user=user,
+            client=invoice.client,
+            project=invoice.project,
+            service_type=service_type,
+            description=description[:500],
+            started_at=cursor,
+            ended_at=ends,
+            duration_seconds=seconds,
+            source=EntrySource.LEXWARE,
+            billable=True,
+            hourly_rate=line.unit_price,
+            computed_amount=money(line.total_price),
+            billing_status=BillingStatus.BILLED,  # corrected below for drafts
         )
-    else:
-        # Finalised in Lexware → billed here (also pushes billable=2 for
-        # Clockodo-sourced entries, same as the local finalisation path).
-        mark_entries_billed(invoice)
+        InvoiceTimeEntry.objects.create(
+            workspace=invoice.workspace,
+            invoice=invoice,
+            invoice_line=line,
+            time_entry=entry,
+            duration_seconds_taken=seconds,
+            amount_taken=money(line.total_price),
+            source=InvoiceLinkSource.LEXWARE_IMPORT,
+        )
+        created.append(entry)
+        cursor = ends + dt.timedelta(minutes=15)
+    return created
 
-    logger.info(
-        "lexware_time_entries_matched",
-        invoice_id=str(invoice.pk),
-        invoice_number=invoice.invoice_number,
-        entries=len(matched_ids),
-        lines=len(matched),
-    )
-    return len(matched_ids)
+
+def _default_import_user(invoice: Invoice) -> User | None:
+    """Reconstructed entries need an owner: the highest-ranking active member."""
+    from apps.accounts.models import WorkspaceMembership, WorkspaceRole
+
+    for role in (
+        WorkspaceRole.OWNER,
+        WorkspaceRole.ADMIN,
+        WorkspaceRole.MEMBER,
+        WorkspaceRole.READONLY,
+    ):
+        membership = (
+            WorkspaceMembership.objects.filter(
+                workspace=invoice.workspace, is_active=True, role=role
+            )
+            .select_related("user")
+            .first()
+        )
+        if membership is not None:
+            return membership.user
+    return None
 
 
 def _in_period(

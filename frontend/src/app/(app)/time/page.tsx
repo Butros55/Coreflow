@@ -31,7 +31,7 @@ import {
   useServiceTypes,
   useStartTimer,
   useStopTimer,
-  useTimeEntries,
+  useTimeEntriesRange,
   useTimer,
   timesheetExportUrl,
   type TimeEntry,
@@ -40,14 +40,36 @@ import { usePermissions } from '@/lib/session';
 import { cn, formatDuration, formatHours, formatMoney } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
-// Week helpers (Monday-based, matching German business convention)
+// Period helpers (weeks Monday-based, matching German business convention)
 // ---------------------------------------------------------------------------
 
-function startOfWeek(date: Date): Date {
+type Period = 'week' | 'month' | 'year';
+
+const PERIOD_LABELS: Record<Period, string> = { week: 'Woche', month: 'Monat', year: 'Jahr' };
+const CURRENT_LABELS: Record<Period, string> = {
+  week: 'Diese Woche',
+  month: 'Dieser Monat',
+  year: 'Dieses Jahr',
+};
+
+function startOfPeriod(date: Date, period: Period): Date {
   const copy = new Date(date);
   copy.setHours(0, 0, 0, 0);
-  const day = (copy.getDay() + 6) % 7; // Monday = 0
-  copy.setDate(copy.getDate() - day);
+  if (period === 'week') {
+    const day = (copy.getDay() + 6) % 7; // Monday = 0
+    copy.setDate(copy.getDate() - day);
+    return copy;
+  }
+  copy.setDate(1);
+  if (period === 'year') copy.setMonth(0);
+  return copy;
+}
+
+function addPeriod(date: Date, period: Period, count: number): Date {
+  const copy = new Date(date);
+  if (period === 'week') copy.setDate(copy.getDate() + 7 * count);
+  else if (period === 'month') copy.setMonth(copy.getMonth() + count);
+  else copy.setFullYear(copy.getFullYear() + count);
   return copy;
 }
 
@@ -61,36 +83,53 @@ function dayKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
+function monthKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function rangeLabel(start: Date, period: Period): string {
+  if (period === 'week') {
+    return `${start.toLocaleDateString('de-DE')} – ${addDays(start, 6).toLocaleDateString('de-DE')}`;
+  }
+  if (period === 'month') {
+    return start.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
+  }
+  return String(start.getFullYear());
+}
+
 export default function TimePage() {
   const permissions = usePermissions();
-  const [weekStart, setWeekStart] = React.useState(() => startOfWeek(new Date()));
-  const weekEnd = addDays(weekStart, 7);
+  const [period, setPeriod] = React.useState<Period>('week');
+  const [anchor, setAnchor] = React.useState(() => startOfPeriod(new Date(), 'week'));
+  const rangeEnd = addPeriod(anchor, period, 1);
   const [createOpen, setCreateOpen] = React.useState(false);
 
-  const { data } = useTimeEntries({
-    time_from: weekStart.toISOString(),
-    time_to: weekEnd.toISOString(),
-  });
-  const entries = React.useMemo(
-    () => (data?.results ?? []).filter((entry) => !entry.is_running),
-    [data],
-  );
+  const switchPeriod = (next: Period) => {
+    setPeriod(next);
+    setAnchor(startOfPeriod(new Date(), next));
+  };
 
-  const byDay = React.useMemo(() => {
+  const exportRange = { time_from: anchor.toISOString(), time_to: rangeEnd.toISOString() };
+  const { entries: fetched, isFillingUp } = useTimeEntriesRange(exportRange);
+  const entries = React.useMemo(() => fetched.filter((entry) => !entry.is_running), [fetched]);
+
+  // Day sections for week/month; month sections for the year view.
+  const grouped = React.useMemo(() => {
     const map = new Map<string, TimeEntry[]>();
+    const keyOf = period === 'year' ? monthKey : dayKey;
     for (const entry of entries) {
-      const key = dayKey(new Date(entry.started_at));
+      const key = keyOf(new Date(entry.started_at));
       map.set(key, [...(map.get(key) ?? []), entry]);
     }
     return map;
-  }, [entries]);
+  }, [entries, period]);
 
-  const weekSeconds = entries.reduce((sum, entry) => sum + entry.duration_seconds, 0);
-  const weekBillable = entries
+  const totalSeconds = entries.reduce((sum, entry) => sum + entry.duration_seconds, 0);
+  const totalBillable = entries
     .filter((entry) => entry.billable)
     .reduce((sum, entry) => sum + Number(entry.computed_amount), 0);
 
-  const isCurrentWeek = dayKey(weekStart) === dayKey(startOfWeek(new Date()));
+  const isCurrent = dayKey(anchor) === dayKey(startOfPeriod(new Date(), period));
 
   return (
     <>
@@ -99,22 +138,12 @@ export default function TimePage() {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="ghost" size="sm" asChild>
-              <a
-                href={timesheetExportUrl('csv', {
-                  time_from: weekStart.toISOString(),
-                  time_to: weekEnd.toISOString(),
-                })}
-              >
+              <a href={timesheetExportUrl('csv', exportRange)}>
                 <FileSpreadsheet aria-hidden /> CSV
               </a>
             </Button>
             <Button variant="ghost" size="sm" asChild>
-              <a
-                href={timesheetExportUrl('pdf', {
-                  time_from: weekStart.toISOString(),
-                  time_to: weekEnd.toISOString(),
-                })}
-              >
+              <a href={timesheetExportUrl('pdf', exportRange)}>
                 <FileText aria-hidden /> PDF
               </a>
             </Button>
@@ -126,40 +155,60 @@ export default function TimePage() {
           </div>
         }
       >
-        <div className="flex flex-wrap items-center gap-2 pt-3 pb-3">
+        <div className="flex flex-wrap items-center gap-3 pt-3 pb-3">
+          <div
+            className="flex items-center gap-0.5 rounded-[var(--radius-sm)] border border-[var(--color-line)] p-0.5"
+            role="group"
+            aria-label="Zeitraum"
+          >
+            {(Object.keys(PERIOD_LABELS) as Period[]).map((value) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => switchPeriod(value)}
+                className={cn(
+                  'rounded-[var(--radius-xs)] px-2.5 py-1 text-[length:var(--text-xs)] font-medium',
+                  period === value
+                    ? 'bg-[var(--color-panel-raised)] text-[var(--color-ink)]'
+                    : 'text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]',
+                )}
+              >
+                {PERIOD_LABELS[value]}
+              </button>
+            ))}
+          </div>
           <div className="flex items-center gap-1">
             <Button
               variant="ghost"
               size="icon-sm"
-              onClick={() => setWeekStart(addDays(weekStart, -7))}
-              aria-label="Vorherige Woche"
+              onClick={() => setAnchor(addPeriod(anchor, period, -1))}
+              aria-label={`Vorherige ${PERIOD_LABELS[period]}`}
             >
               <ChevronLeft aria-hidden />
             </Button>
             <button
               type="button"
-              onClick={() => setWeekStart(startOfWeek(new Date()))}
+              onClick={() => setAnchor(startOfPeriod(new Date(), period))}
               className={cn(
                 'rounded-[var(--radius-sm)] px-2 py-1 text-[length:var(--text-sm)]',
-                isCurrentWeek
+                isCurrent
                   ? 'font-medium text-[var(--color-ink)]'
                   : 'text-[var(--color-brand)] hover:underline',
               )}
             >
-              {isCurrentWeek ? 'Diese Woche' : 'Heute'}
+              {isCurrent ? CURRENT_LABELS[period] : 'Heute'}
             </button>
             <Button
               variant="ghost"
               size="icon-sm"
-              onClick={() => setWeekStart(addDays(weekStart, 7))}
-              aria-label="Nächste Woche"
+              onClick={() => setAnchor(addPeriod(anchor, period, 1))}
+              aria-label={`Nächste ${PERIOD_LABELS[period]}`}
             >
               <ChevronRight aria-hidden />
             </Button>
           </div>
           <span className="text-[length:var(--text-sm)] text-[var(--color-ink-muted)]">
-            {weekStart.toLocaleDateString('de-DE')} –{' '}
-            {addDays(weekStart, 6).toLocaleDateString('de-DE')}
+            {rangeLabel(anchor, period)}
           </span>
         </div>
       </PageHeader>
@@ -168,48 +217,68 @@ export default function TimePage() {
         {permissions.can_write ? <TimerPanel /> : null}
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <StatTile label="Diese Woche" value={formatHours(weekSeconds / 3600)} />
+          <StatTile
+            label={isCurrent ? CURRENT_LABELS[period] : PERIOD_LABELS[period]}
+            value={formatHours(totalSeconds / 3600)}
+          />
           <StatTile
             label="Abrechenbarer Wert"
-            value={formatMoney(weekBillable.toFixed(2))}
-            tone={weekBillable > 0 ? 'success' : 'default'}
+            value={formatMoney(totalBillable.toFixed(2))}
+            tone={totalBillable > 0 ? 'success' : 'default'}
           />
           <StatTile label="Einträge" value={entries.length} />
         </div>
 
+        {isFillingUp ? (
+          <p className="text-[length:var(--text-xs)] text-[var(--color-ink-subtle)]">
+            Lädt weitere Einträge…
+          </p>
+        ) : null}
+
         {entries.length === 0 ? (
           <EmptyState
             icon={<TimerIcon className="size-8" aria-hidden />}
-            title="Keine Einträge in dieser Woche"
+            title="Keine Einträge in diesem Zeitraum"
             description="Starte den Timer oder erfasse einen manuellen Eintrag."
           />
         ) : (
-          Array.from({ length: 7 }, (_, index) => addDays(weekStart, index))
-            // Newest day first — today sits on top, history reads downwards.
+          [...grouped.keys()]
+            .sort()
+            // Newest first — today sits on top, history reads downwards.
             .reverse()
-            .filter((day) => byDay.has(dayKey(day)))
-            .map((day) => {
-              const dayEntries = (byDay.get(dayKey(day)) ?? []).sort(
+            .map((key) => {
+              const sectionEntries = (grouped.get(key) ?? []).sort(
                 (a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime(),
               );
-              const daySeconds = dayEntries.reduce((sum, e) => sum + e.duration_seconds, 0);
-              const isToday = dayKey(day) === dayKey(new Date());
+              const sectionSeconds = sectionEntries.reduce((s, e) => s + e.duration_seconds, 0);
+              const sectionDate = new Date(
+                period === 'year' ? `${key}-01T00:00:00` : `${key}T00:00:00`,
+              );
+              const isToday = period !== 'year' && key === dayKey(new Date());
+              const title =
+                period === 'year'
+                  ? sectionDate.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' })
+                  : sectionDate.toLocaleDateString('de-DE', {
+                      weekday: 'long',
+                      day: '2-digit',
+                      month: '2-digit',
+                    });
               return (
                 <GroupSection
-                  key={dayKey(day)}
+                  key={key}
                   color={isToday ? 'var(--color-brand)' : 'var(--color-status-hold)'}
-                  title={day.toLocaleDateString('de-DE', {
-                    weekday: 'long',
-                    day: '2-digit',
-                    month: '2-digit',
-                  })}
+                  title={title}
                   meta={
                     <span className="tabular text-[length:var(--text-xs)] text-[var(--color-ink-muted)]">
-                      Σ {formatHours(daySeconds / 3600)}
+                      Σ {formatHours(sectionSeconds / 3600)}
                     </span>
                   }
                 >
-                  <DayTable entries={dayEntries} canEdit={permissions.can_write} />
+                  <DayTable
+                    entries={sectionEntries}
+                    canEdit={permissions.can_write}
+                    showDate={period === 'year'}
+                  />
                 </GroupSection>
               );
             })
@@ -383,7 +452,16 @@ function TimerPanel() {
 // Day table + manual entry
 // ---------------------------------------------------------------------------
 
-function DayTable({ entries, canEdit }: { entries: TimeEntry[]; canEdit: boolean }) {
+function DayTable({
+  entries,
+  canEdit,
+  showDate = false,
+}: {
+  entries: TimeEntry[];
+  canEdit: boolean;
+  /** Prepend the date to the time — for sections spanning more than one day. */
+  showDate?: boolean;
+}) {
   const deleteEntry = useDeleteTimeEntry();
   const [entryToDelete, setEntryToDelete] = React.useState<TimeEntry | null>(null);
   return (
@@ -391,7 +469,7 @@ function DayTable({ entries, canEdit }: { entries: TimeEntry[]; canEdit: boolean
       <DataTable>
         <thead>
           <tr>
-            <Th className="w-24">Zeit</Th>
+            <Th className={showDate ? 'w-32' : 'w-24'}>Zeit</Th>
             <Th>Kunde / Projekt</Th>
             <Th className="w-[30%]">Beschreibung</Th>
             <Th>Leistungsart</Th>
@@ -407,6 +485,12 @@ function DayTable({ entries, canEdit }: { entries: TimeEntry[]; canEdit: boolean
             return (
               <tr key={entry.id} className="group last:[&>td]:border-b-0">
                 <Td className="tabular whitespace-nowrap text-[var(--color-ink-muted)]">
+                  {showDate
+                    ? `${new Date(entry.started_at).toLocaleDateString('de-DE', {
+                        day: '2-digit',
+                        month: '2-digit',
+                      })} `
+                    : ''}
                   {new Date(entry.started_at).toLocaleTimeString('de-DE', {
                     hour: '2-digit',
                     minute: '2-digit',

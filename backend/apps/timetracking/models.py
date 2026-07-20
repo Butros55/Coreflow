@@ -44,6 +44,9 @@ class EntrySource(models.TextChoices):
     MANUAL = "manual", _("Manuell")
     TIMER = "timer", _("Timer")
     CLOCKODO = "clockodo", _("Clockodo")
+    # Reconstructed from an imported Lexware invoice line — the hours were
+    # billed there before Coreflow existed and had no local counterpart.
+    LEXWARE = "lexware", _("Lexware")
 
 
 class TimeEntry(WorkspaceScopedModel, BaseModel):

@@ -314,15 +314,19 @@ SERVICE_PERIOD = {
 }
 
 
+def run_full_import(workspace: Workspace, invoices: list[dict[str, Any]]) -> None:
+    mock_contact_and_lists(invoices)
+    with LexwareClient() as conn:
+        importer = LexwareImport(workspace)
+        importer.import_contacts(conn)
+        importer.import_invoices(conn)
+
+
 class TestTimeEntryMatching:
     """Imported lines are matched to open entries — exactly or not at all."""
 
     def _run_import(self, workspace: Workspace, invoices: list[dict[str, Any]]) -> None:
-        mock_contact_and_lists(invoices)
-        with LexwareClient() as conn:
-            importer = LexwareImport(workspace)
-            importer.import_contacts(conn)
-            importer.import_invoices(conn)
+        run_full_import(workspace, invoices)
 
     @respx.mock
     def test_service_line_matches_entries_and_marks_them_lexware_billed(
@@ -451,7 +455,9 @@ class TestTimeEntryMatching:
         self._run_import(
             workspace, [remote_invoice("lex-inv-1", shippingConditions=SERVICE_PERIOD)]
         )
-        assert InvoiceTimeEntry.objects.count() == 0  # nothing tracked yet
+        # No links yet: nothing tracked, and reconstruction has no active
+        # member to own entries in this fixture setup.
+        assert InvoiceTimeEntry.objects.count() == 0
 
         service = ServiceType.objects.create(workspace=workspace, name="Entwicklung")
         client = Client.objects.get(workspace=workspace, name="Import AG")
@@ -498,6 +504,145 @@ class TestTimeEntryMatching:
         # "Entwicklung" took its service-type bucket; the 10h "Beratung" line
         # then found exactly one remaining 10h entry.
         assert by_line == {"Entwicklung": dev_entry.pk, "Beratung": advice_entry.pk}
+
+
+class TestTimeEntryReconstruction:
+    """No local hours at all → the invoice's hour lines become billed entries."""
+
+    @respx.mock
+    def test_hour_lines_become_billed_lexware_entries(
+        self, workspace: Workspace, user: User, owner_membership: Any
+    ) -> None:
+        ServiceType.objects.create(workspace=workspace, name="Entwicklung")
+        inv = remote_invoice("lex-inv-1", shippingConditions=SERVICE_PERIOD)
+        inv["lineItems"].append(
+            {
+                "type": "custom",
+                "name": "Lizenz",
+                "quantity": 1,
+                "unitName": "Stück",
+                "unitPrice": {"currency": "EUR", "netAmount": 100.0, "taxRatePercentage": 19},
+            }
+        )
+        run_full_import(workspace, [inv])
+
+        entries = TimeEntry.objects.filter(workspace=workspace)
+        assert entries.count() == 1  # text line and "Stück" line are not time
+        entry = entries.get()
+        assert entry.source == EntrySource.LEXWARE
+        assert entry.billing_status == BillingStatus.BILLED
+        assert entry.user == user  # owner of the workspace
+        assert entry.duration_seconds == 36000  # 10 h
+        assert entry.hourly_rate == Decimal("95.00")
+        assert entry.computed_amount == Decimal("950.00")
+        assert entry.service_type is not None and entry.service_type.name == "Entwicklung"
+        assert "Sprint 4" in entry.description
+        assert entry.started_at.date() == dt.date(2026, 5, 1)  # period start
+
+        link = InvoiceTimeEntry.objects.get()
+        assert link.source == InvoiceLinkSource.LEXWARE_IMPORT
+        assert link.invoice_line.title == "Entwicklung"
+        assert link.time_entry_id == entry.pk
+
+    @respx.mock
+    def test_reconstruction_is_idempotent_across_reruns(
+        self, workspace: Workspace, user: User, owner_membership: Any
+    ) -> None:
+        inv = remote_invoice("lex-inv-1", shippingConditions=SERVICE_PERIOD)
+        run_full_import(workspace, [inv])
+        run_full_import(workspace, [inv])
+
+        assert TimeEntry.objects.filter(workspace=workspace).count() == 1
+        assert InvoiceTimeEntry.objects.count() == 1
+
+    @respx.mock
+    def test_draft_invoice_reconstructs_as_reserved(
+        self, workspace: Workspace, user: User, owner_membership: Any
+    ) -> None:
+        inv = remote_invoice("lex-inv-1", voucherStatus="draft", shippingConditions=SERVICE_PERIOD)
+        run_full_import(workspace, [inv])
+
+        entry = TimeEntry.objects.get(workspace=workspace)
+        assert entry.billing_status == BillingStatus.DRAFT_CREATED
+        assert entry.source == EntrySource.LEXWARE
+
+    @respx.mock
+    def test_without_active_member_reconstruction_is_skipped(self, workspace: Workspace) -> None:
+        run_full_import(workspace, [remote_invoice("lex-inv-1", shippingConditions=SERVICE_PERIOD)])
+        assert TimeEntry.objects.count() == 0
+        assert Invoice.objects.count() == 1  # the mirror itself still lands
+
+
+class TestContactMasterData:
+    """Contact persons and tax ids ride along with the contact import."""
+
+    @respx.mock
+    def test_contact_persons_and_tax_ids_are_imported(self, workspace: Workspace) -> None:
+        enriched = contact(
+            "lex-contact-1",
+            company={
+                "name": "Import AG",
+                "taxNumber": "5/123/45678",
+                "vatRegistrationId": "DE123456789",
+                "contactPersons": [
+                    {
+                        "firstName": "Petra",
+                        "lastName": "Primär",
+                        "primary": True,
+                        "emailAddress": "petra@import.example",
+                        "phoneNumber": "+49 40 111",
+                    },
+                    {"firstName": "Sven", "lastName": "Sekundär", "primary": False},
+                ],
+            },
+        )
+        respx.get(f"{LEXWARE}/v1/contacts").mock(
+            return_value=httpx.Response(200, json=spring_page([enriched]))
+        )
+        with LexwareClient() as conn:
+            LexwareImport(workspace).import_contacts(conn)
+
+        client = Client.objects.get(workspace=workspace, name="Import AG")
+        assert client.tax_number == "5/123/45678"
+        assert client.vat_id == "DE123456789"
+        contacts = list(client.contacts.order_by("-is_primary", "last_name"))
+        assert [(c.first_name, c.is_primary) for c in contacts] == [
+            ("Petra", True),
+            ("Sven", False),
+        ]
+        assert contacts[0].email == "petra@import.example"
+
+    @respx.mock
+    def test_rerun_backfills_empty_fields_without_overwriting(self, workspace: Workspace) -> None:
+        plain = contact("lex-contact-1")
+        respx.get(f"{LEXWARE}/v1/contacts").mock(
+            return_value=httpx.Response(200, json=spring_page([plain]))
+        )
+        with LexwareClient() as conn:
+            LexwareImport(workspace).import_contacts(conn)
+
+        client = Client.objects.get(workspace=workspace, name="Import AG")
+        client.email = "lokal@firma.de"  # locally maintained — must survive
+        client.save(update_fields=["email"])
+
+        enriched = contact(
+            "lex-contact-1",
+            company={
+                "name": "Import AG",
+                "taxNumber": "5/123/45678",
+                "contactPersons": [{"firstName": "Petra", "lastName": "Primär", "primary": True}],
+            },
+        )
+        respx.get(f"{LEXWARE}/v1/contacts").mock(
+            return_value=httpx.Response(200, json=spring_page([enriched]))
+        )
+        with LexwareClient() as conn:
+            LexwareImport(workspace).import_contacts(conn)
+
+        client.refresh_from_db()
+        assert client.tax_number == "5/123/45678"  # empty field got filled
+        assert client.email == "lokal@firma.de"  # local value untouched
+        assert client.contacts.count() == 1
 
 
 class TestImportTrigger:
