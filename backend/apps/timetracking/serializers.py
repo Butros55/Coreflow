@@ -30,6 +30,25 @@ class ServiceTypeSerializer(WorkspaceScopedSerializer):
         ]
         read_only_fields = ["id"]
 
+    def validate_name(self, value: str) -> str:
+        """Catch duplicates here — the DB unique constraint alone would surface
+        as an opaque 500 because ``workspace`` is not a serializer field and
+        DRF therefore cannot auto-generate the unique-together validator."""
+        from apps.accounts.permissions import resolve_workspace
+
+        value = value.strip()
+        request = self.context.get("request")
+        workspace = resolve_workspace(request) if request is not None else None
+        if workspace is not None:
+            clash = ServiceType.objects.filter(workspace=workspace, name__iexact=value)
+            if self.instance is not None:
+                clash = clash.exclude(pk=self.instance.pk)
+            if clash.exists():
+                raise serializers.ValidationError(
+                    "Eine Leistungsart mit diesem Namen existiert bereits."
+                )
+        return value
+
 
 class TimeEntrySerializer(WorkspaceScopedSerializer):
     client_name = serializers.CharField(source="client.display_name", read_only=True)

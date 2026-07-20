@@ -26,13 +26,17 @@ logger = get_logger("core.exceptions")
 
 
 class CoreflowError(APIException):
-    """Base for domain errors carrying a stable machine-readable code."""
+    """Base for domain errors carrying a stable machine-readable code.
+
+    ``default_detail`` strings are user-facing (the SPA toasts them verbatim)
+    and therefore German.
+    """
 
     # Annotated as int, not left to inference: mypy would otherwise infer
     # Literal[400] here and reject every subclass that sets a different status.
     status_code: int = status.HTTP_400_BAD_REQUEST
     default_code: str = "coreflow_error"
-    default_detail: str = "A business rule was violated."
+    default_detail: str = "Eine Geschäftsregel wurde verletzt."
 
 
 class InvalidCredentials(CoreflowError):
@@ -47,35 +51,37 @@ class InvalidCredentials(CoreflowError):
 
     status_code = status.HTTP_400_BAD_REQUEST
     default_code = "invalid_credentials"
-    default_detail = "Invalid email address or password."
+    default_detail = "E-Mail-Adresse oder Passwort ist falsch."
 
 
 class BusinessRuleViolation(CoreflowError):
     status_code = status.HTTP_409_CONFLICT
     default_code = "business_rule_violation"
-    default_detail = "The requested operation violates a business rule."
+    default_detail = "Die Aktion verletzt eine Geschäftsregel."
 
 
 class TimerAlreadyRunning(BusinessRuleViolation):
     default_code = "timer_already_running"
-    default_detail = "A timer is already running for this user. Stop it before starting another."
+    default_detail = "Es läuft bereits ein Timer. Bitte zuerst stoppen."
 
 
 class TimeEntryAlreadyBilled(BusinessRuleViolation):
     default_code = "time_entry_already_billed"
-    default_detail = "This time entry is already attached to an invoice."
+    default_detail = "Dieser Zeiteintrag ist bereits einer Rechnung zugeordnet."
 
 
 class IntegrationDisabled(CoreflowError):
     status_code = status.HTTP_409_CONFLICT
     default_code = "integration_disabled"
-    default_detail = "This integration is disabled. Enable it in settings first."
+    default_detail = (
+        "Diese Integration ist deaktiviert. Bitte zuerst in den Einstellungen aktivieren."
+    )
 
 
 class IntegrationNotConfigured(CoreflowError):
     status_code = status.HTTP_409_CONFLICT
     default_code = "integration_not_configured"
-    default_detail = "This integration is missing credentials."
+    default_detail = "Für diese Integration fehlen Zugangsdaten."
 
 
 class ProviderError(CoreflowError):
@@ -85,24 +91,26 @@ class ProviderError(CoreflowError):
     # re-narrow this to Literal[502] and break the subclasses below.
     status_code: int = status.HTTP_502_BAD_GATEWAY
     default_code = "provider_error"
-    default_detail = "The external provider returned an error."
+    default_detail = "Der externe Anbieter hat einen Fehler gemeldet."
 
 
 class ProviderRateLimited(ProviderError):
     status_code = status.HTTP_429_TOO_MANY_REQUESTS
     default_code = "provider_rate_limited"
-    default_detail = "The external provider rate-limited this request."
+    default_detail = "Der externe Anbieter hat die Anfrage wegen zu vieler Zugriffe abgelehnt."
 
 
 class ProviderUnavailable(ProviderError):
     status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     default_code = "provider_unavailable"
-    default_detail = "The external provider is unavailable."
+    default_detail = "Der externe Anbieter ist gerade nicht erreichbar."
 
 
 class SyncConflictDetected(BusinessRuleViolation):
     default_code = "sync_conflict"
-    default_detail = "Local and remote records diverged. Resolve the conflict first."
+    default_detail = (
+        "Lokale und externe Daten weichen voneinander ab. Bitte den Konflikt zuerst lösen."
+    )
 
 
 def _extract_code(exc: Exception, response_data: Any) -> str:
@@ -145,7 +153,7 @@ def coreflow_exception_handler(exc: Exception, context: dict[str, Any]) -> Respo
             {
                 "error": {
                     "code": "internal_error",
-                    "message": "An internal error occurred.",
+                    "message": "Ein interner Fehler ist aufgetreten. Bitte erneut versuchen.",
                     "request_id": request_id,
                 }
             },
@@ -159,10 +167,10 @@ def coreflow_exception_handler(exc: Exception, context: dict[str, Any]) -> Respo
     if isinstance(detail, dict) and "detail" in detail and len(detail) == 1:
         message = str(detail["detail"])
     elif isinstance(detail, dict):
-        message = "Validation failed."
+        message = _validation_message(detail)
         payload = detail
     elif isinstance(detail, list):
-        message = "Validation failed."
+        message = _validation_message({"non_field_errors": detail})
         payload = {"non_field_errors": detail}
     else:
         message = str(detail)
@@ -176,6 +184,41 @@ def coreflow_exception_handler(exc: Exception, context: dict[str, Any]) -> Respo
         }
     }
     return response
+
+
+def _first_message(value: Any) -> str | None:
+    """Depth-first first human-readable string in a DRF error structure."""
+    if isinstance(value, str):
+        return value or None
+    if isinstance(value, dict):
+        for nested in value.values():
+            found = _first_message(nested)
+            if found:
+                return found
+        return None
+    if isinstance(value, list):
+        for item in value:
+            found = _first_message(item)
+            if found:
+                return found
+        return None
+    return str(value) if value is not None else None
+
+
+def _validation_message(payload: dict[str, Any]) -> str:
+    """A concrete, human-readable summary instead of a bare "Validation failed".
+
+    Field messages themselves are already localised (LANGUAGE_CODE=de); this
+    surfaces the first one so a plain toast is useful even before a form
+    renders the per-field details from ``detail``.
+    """
+    first = _first_message(payload)
+    if first is None:
+        return "Eingaben ungültig — bitte prüfen."
+    field_count = len(payload)
+    if field_count > 1:
+        return f"{first} (+{field_count - 1} weitere Felder)"
+    return first
 
 
 def _to_drf_validation_error(exc: DjangoValidationError) -> APIException:

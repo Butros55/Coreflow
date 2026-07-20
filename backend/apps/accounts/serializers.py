@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from django.contrib.auth import authenticate
@@ -57,8 +58,18 @@ class WorkspaceCreateSerializer(serializers.Serializer[dict[str, object]]):
     small_business = serializers.BooleanField(required=False, default=False)
 
 
+_IBAN_RE = re.compile(r"^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$")
+_BIC_RE = re.compile(r"^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$")
+
+
 class WorkspaceSerializer(serializers.ModelSerializer[Workspace]):
-    """Full workspace/company profile."""
+    """Full workspace/company profile.
+
+    Sloppy-but-unambiguous input is normalised instead of rejected: a website
+    without scheme gets ``https://``, IBAN/BIC lose spaces and casing. That
+    happens in ``to_internal_value`` — field validation (URLField!) runs before
+    ``validate_<field>`` hooks, so fixing values there would be too late.
+    """
 
     class Meta:
         model = Workspace
@@ -92,6 +103,44 @@ class WorkspaceSerializer(serializers.ModelSerializer[Workspace]):
             "updated_at",
         ]
         read_only_fields = ["id", "slug", "created_at", "updated_at"]
+
+    def to_internal_value(self, data: Any) -> Any:
+        if hasattr(data, "items"):
+            data = dict(data.items())
+            website = data.get("website")
+            if isinstance(website, str):
+                website = website.strip()
+                if website and "://" not in website:
+                    website = f"https://{website}"
+                data["website"] = website
+            for key in ("bank_iban", "bank_bic", "vat_id"):
+                value = data.get(key)
+                if isinstance(value, str):
+                    data[key] = value.replace(" ", "").upper()
+            for key in ("email", "tax_number", "phone"):
+                value = data.get(key)
+                if isinstance(value, str):
+                    data[key] = value.strip()
+        return super().to_internal_value(data)
+
+    def validate_bank_iban(self, value: str) -> str:
+        if value and not _IBAN_RE.match(value):
+            raise serializers.ValidationError(
+                "Bitte eine gültige IBAN eingeben (z. B. DE89 3704 0044 0532 0130 00)."
+            )
+        return value
+
+    def validate_bank_bic(self, value: str) -> str:
+        if value and not _BIC_RE.match(value):
+            raise serializers.ValidationError(
+                "Bitte einen gültigen BIC eingeben (8 oder 11 Zeichen, z. B. GENODEM1GLS)."
+            )
+        return value
+
+    def validate_default_payment_term_days(self, value: int) -> int:
+        if value > 180:
+            raise serializers.ValidationError("Zahlungsziel darf höchstens 180 Tage betragen.")
+        return value
 
 
 class MembershipSerializer(serializers.ModelSerializer[WorkspaceMembership]):

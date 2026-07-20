@@ -8,9 +8,10 @@ import { Button } from '@/components/ui/button';
 import { DeleteConfirmationDialog } from '@/components/ui/delete-confirmation-dialog';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { DataTable, Td, Th } from '@/components/ui/group-bar';
-import { Input, Label } from '@/components/ui/input';
+import { FieldError, Input, Label } from '@/components/ui/input';
 import { EmptyState, Panel } from '@/components/ui/panel';
 import { StatusTint } from '@/components/ui/status-pill';
+import { fieldErrorsOf, validationToastMessage } from '@/lib/api/form-errors';
 import {
   useDeleteServiceType,
   useSaveServiceType,
@@ -110,6 +111,12 @@ export function ServiceTypesTab() {
   );
 }
 
+const DIALOG_LABELS: Record<string, string> = {
+  name: 'Name',
+  default_hourly_rate: 'Stundensatz (€)',
+  description: 'Beschreibung',
+};
+
 function ServiceTypeDialog({
   open,
   onOpenChange,
@@ -121,10 +128,14 @@ function ServiceTypeDialog({
   const [name, setName] = React.useState('');
   const [rate, setRate] = React.useState('');
   const [description, setDescription] = React.useState('');
+  const [errors, setErrors] = React.useState<Record<string, string>>({});
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
-    if (!name.trim()) return;
+    if (!name.trim()) {
+      setErrors({ name: 'Bitte einen Namen angeben.' });
+      return;
+    }
     save.mutate(
       { name: name.trim(), default_hourly_rate: rate || null, description },
       {
@@ -134,8 +145,17 @@ function ServiceTypeDialog({
           setName('');
           setRate('');
           setDescription('');
+          setErrors({});
         },
-        onError: (error) => toast.error(error.message),
+        onError: (error) => {
+          const fieldErrors = fieldErrorsOf(error);
+          if (fieldErrors) {
+            setErrors(fieldErrors);
+            toast.error(validationToastMessage(fieldErrors, DIALOG_LABELS));
+          } else {
+            toast.error(error.message);
+          }
+        },
       },
     );
   };
@@ -143,7 +163,7 @@ function ServiceTypeDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent title="Neue Leistungsart">
-        <form onSubmit={submit} className="space-y-3">
+        <form onSubmit={submit} className="space-y-3" noValidate>
           <div>
             <Label htmlFor="st-name" required>
               Name
@@ -151,28 +171,42 @@ function ServiceTypeDialog({
             <Input
               id="st-name"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              invalid={Boolean(errors.name)}
+              onChange={(e) => {
+                setName(e.target.value);
+                setErrors((p) => (p.name ? { ...p, name: '' } : p));
+              }}
               autoFocus
               required
             />
+            <FieldError>{errors.name}</FieldError>
           </div>
           <div>
             <Label htmlFor="st-rate">Stundensatz (€)</Label>
             <Input
               id="st-rate"
               type="number"
+              step="0.01"
+              min="0"
               value={rate}
-              onChange={(e) => setRate(e.target.value)}
+              invalid={Boolean(errors.default_hourly_rate)}
+              onChange={(e) => {
+                setRate(e.target.value);
+                setErrors((p) => (p.default_hourly_rate ? { ...p, default_hourly_rate: '' } : p));
+              }}
               placeholder="Workspace-Standard"
             />
+            <FieldError>{errors.default_hourly_rate}</FieldError>
           </div>
           <div>
             <Label htmlFor="st-desc">Beschreibung</Label>
             <Input
               id="st-desc"
               value={description}
+              invalid={Boolean(errors.description)}
               onChange={(e) => setDescription(e.target.value)}
             />
+            <FieldError>{errors.description}</FieldError>
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>

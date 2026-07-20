@@ -4,12 +4,35 @@ import * as React from 'react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
-import { Input, Label } from '@/components/ui/input';
+import { FieldError, Input, Label } from '@/components/ui/input';
 import { Panel, PanelBody, PanelHeader, PanelTitle } from '@/components/ui/panel';
 import { Select } from '@/components/ui/select';
 import type { Workspace } from '@/lib/api/types';
+import { fieldErrorsOf, validationToastMessage } from '@/lib/api/form-errors';
 import { useUpdateWorkspace } from '@/lib/api/settings';
 import { usePermissions, useSession } from '@/lib/session';
+
+/** German labels, shared by the inputs and the validation toast. */
+const LABELS: Record<string, string> = {
+  legal_name: 'Firmenname',
+  legal_form: 'Rechtsform',
+  owner_name: 'Inhaber',
+  email: 'E-Mail',
+  phone: 'Telefon',
+  website: 'Website',
+  address_street: 'Straße',
+  address_zip: 'PLZ',
+  address_city: 'Ort',
+  tax_number: 'Steuernummer',
+  vat_id: 'USt-IdNr.',
+  bank_name: 'Bank',
+  bank_bic: 'BIC',
+  bank_iban: 'IBAN',
+  default_hourly_rate: 'Standardstundensatz (€)',
+  default_payment_term_days: 'Zahlungsziel (Tage)',
+  time_rounding_increment_minutes: 'Zeitrundung (Min)',
+  time_rounding_strategy: 'Rundungsstrategie',
+};
 
 export function CompanyTab() {
   const { data: session } = useSession();
@@ -24,8 +47,12 @@ export function CompanyTab() {
 function CompanyForm({ workspace, canEdit }: { workspace: Workspace; canEdit: boolean }) {
   const update = useUpdateWorkspace(workspace.id);
   const [form, setForm] = React.useState(workspace);
-  const set = <K extends keyof Workspace>(k: K, v: Workspace[K]) =>
+  const [errors, setErrors] = React.useState<Record<string, string>>({});
+  const set = <K extends keyof Workspace>(k: K, v: Workspace[K]) => {
     setForm((p) => ({ ...p, [k]: v }));
+    // The message belongs to the rejected value; typing invalidates it.
+    setErrors((p) => (p[k as string] ? { ...p, [k as string]: '' } : p));
+  };
 
   const save = (event: React.FormEvent) => {
     event.preventDefault();
@@ -52,39 +79,53 @@ function CompanyForm({ workspace, canEdit }: { workspace: Workspace; canEdit: bo
         time_rounding_strategy: form.time_rounding_strategy,
       },
       {
-        onSuccess: () => toast.success('Gespeichert.'),
-        onError: (error) => toast.error(error.message),
+        onSuccess: () => {
+          setErrors({});
+          toast.success('Gespeichert.');
+        },
+        onError: (error) => {
+          const fieldErrors = fieldErrorsOf(error);
+          if (fieldErrors) {
+            setErrors(fieldErrors);
+            toast.error(validationToastMessage(fieldErrors, LABELS));
+          } else {
+            toast.error(error.message);
+          }
+        },
       },
     );
   };
 
-  const field = (label: string, key: keyof Workspace, type = 'text') => (
+  const field = (key: keyof Workspace, type = 'text', inputProps?: Partial<InputProps>) => (
     <div>
-      <Label htmlFor={`ws-${key}`}>{label}</Label>
+      <Label htmlFor={`ws-${key}`}>{LABELS[key] ?? key}</Label>
       <Input
         id={`ws-${key}`}
         type={type}
         value={String(form[key] ?? '')}
         disabled={!canEdit}
+        invalid={Boolean(errors[key])}
         onChange={(e) => set(key, e.target.value as Workspace[typeof key])}
+        {...inputProps}
       />
+      <FieldError>{errors[key]}</FieldError>
     </div>
   );
 
   return (
-    <form onSubmit={save} className="space-y-4">
+    <form onSubmit={save} className="space-y-4" noValidate>
       <div className="grid gap-4 lg:grid-cols-2">
         <Panel>
           <PanelHeader>
             <PanelTitle>Firmendaten</PanelTitle>
           </PanelHeader>
           <PanelBody className="grid grid-cols-2 gap-3">
-            {field('Firmenname', 'legal_name')}
-            {field('Rechtsform', 'legal_form')}
-            {field('Inhaber', 'owner_name')}
-            {field('E-Mail', 'email', 'email')}
-            {field('Telefon', 'phone')}
-            {field('Website', 'website')}
+            {field('legal_name')}
+            {field('legal_form')}
+            {field('owner_name')}
+            {field('email', 'email')}
+            {field('phone')}
+            {field('website', 'text', { placeholder: 'z. B. meine-firma.de' })}
           </PanelBody>
         </Panel>
 
@@ -93,11 +134,11 @@ function CompanyForm({ workspace, canEdit }: { workspace: Workspace; canEdit: bo
             <PanelTitle>Adresse & Steuer</PanelTitle>
           </PanelHeader>
           <PanelBody className="grid grid-cols-2 gap-3">
-            <div className="col-span-2">{field('Straße', 'address_street')}</div>
-            {field('PLZ', 'address_zip')}
-            {field('Ort', 'address_city')}
-            {field('Steuernummer', 'tax_number')}
-            {field('USt-IdNr.', 'vat_id')}
+            <div className="col-span-2">{field('address_street')}</div>
+            {field('address_zip')}
+            {field('address_city')}
+            {field('tax_number')}
+            {field('vat_id')}
             <div className="col-span-2 flex items-center gap-2">
               <input
                 type="checkbox"
@@ -119,9 +160,9 @@ function CompanyForm({ workspace, canEdit }: { workspace: Workspace; canEdit: bo
             <PanelTitle>Bank</PanelTitle>
           </PanelHeader>
           <PanelBody className="grid grid-cols-2 gap-3">
-            {field('Bank', 'bank_name')}
-            {field('BIC', 'bank_bic')}
-            <div className="col-span-2">{field('IBAN', 'bank_iban')}</div>
+            {field('bank_name')}
+            {field('bank_bic')}
+            <div className="col-span-2">{field('bank_iban')}</div>
           </PanelBody>
         </Panel>
 
@@ -130,20 +171,11 @@ function CompanyForm({ workspace, canEdit }: { workspace: Workspace; canEdit: bo
             <PanelTitle>Abrechnung & Zeit</PanelTitle>
           </PanelHeader>
           <PanelBody className="grid grid-cols-2 gap-3">
-            {field('Standardstundensatz (€)', 'default_hourly_rate', 'number')}
-            {field('Zahlungsziel (Tage)', 'default_payment_term_days', 'number')}
+            {field('default_hourly_rate', 'number', { step: '0.01', min: '0' })}
+            {field('default_payment_term_days', 'number', { min: '0', max: '180' })}
+            {field('time_rounding_increment_minutes', 'number', { min: '0' })}
             <div>
-              <Label htmlFor="ws-round-inc">Zeitrundung (Min)</Label>
-              <Input
-                id="ws-round-inc"
-                type="number"
-                value={form.time_rounding_increment_minutes}
-                disabled={!canEdit}
-                onChange={(e) => set('time_rounding_increment_minutes', Number(e.target.value))}
-              />
-            </div>
-            <div>
-              <Label htmlFor="ws-round-strat">Rundungsstrategie</Label>
+              <Label htmlFor="ws-round-strat">{LABELS.time_rounding_strategy}</Label>
               <Select
                 id="ws-round-strat"
                 value={form.time_rounding_strategy}
@@ -174,3 +206,5 @@ function CompanyForm({ workspace, canEdit }: { workspace: Workspace; canEdit: bo
     </form>
   );
 }
+
+type InputProps = React.ComponentProps<typeof Input>;
