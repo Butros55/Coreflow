@@ -165,3 +165,23 @@ class TestFileUpload:
     def test_readonly_member_cannot_upload(self, readonly_client: APIClient) -> None:
         response = self._upload(readonly_client, "note.txt", b"hi")
         assert response.status_code == 403
+
+    def test_download_works_without_workspace_header(self, auth_client: APIClient) -> None:
+        """window.open / <a href> cannot send X-Workspace-ID — the download
+        resolves via memberships instead, and serves inline for viewing."""
+        upload = self._upload(auth_client, "ansicht.pdf", b"%PDF-1.7 inline")
+        file_id = upload.data["id"]
+
+        auth_client.credentials()  # strip default headers incl. the workspace id
+        response = auth_client.get(reverse("file-download", args=[file_id]))
+        assert response.status_code == 200
+        assert b"".join(response.streaming_content) == b"%PDF-1.7 inline"  # type: ignore[attr-defined]
+        assert "attachment" not in response.headers.get("Content-Disposition", "")
+
+    def test_download_denied_for_non_members(self, auth_client: APIClient, outsider: Any) -> None:
+        upload = self._upload(auth_client, "geheim.pdf", b"%PDF-1.7 secret")
+        file_id = upload.data["id"]
+
+        stranger = APIClient()
+        stranger.force_authenticate(user=outsider)
+        assert stranger.get(reverse("file-download", args=[file_id])).status_code == 404

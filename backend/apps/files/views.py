@@ -8,6 +8,7 @@ from django.http import FileResponse, Http404
 from rest_framework import status as http_status
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -76,18 +77,36 @@ class StoredFileViewSet(WorkspaceScopedViewSet):
         model = apps.get_model(label)
         return model.objects.filter(workspace=workspace, pk=value).first()
 
-    @action(detail=True, methods=["get"])
+    @action(detail=True, methods=["get"], permission_classes=[IsAuthenticated])
     def download(self, request: Request, pk: str | None = None) -> Any:
-        """Stream the file. In production this could 302 to a presigned URL."""
-        stored = self.get_object()
-        if not stored.storage:
+        """Stream the file, inline where the browser can render it.
+
+        Resolved via the user's MEMBERSHIPS, not the active-workspace header:
+        plain navigations (window.open, <a href>) cannot send X-Workspace-ID,
+        which made every file 403 and look "not displayable". Authorisation is
+        unchanged in substance — only members of the file's workspace match.
+        """
+        from apps.accounts.utils import require_user
+
+        if pk is None:
             raise Http404
-        response = FileResponse(
-            stored.storage.open("rb"),
-            as_attachment=True,
-            filename=stored.filename,
+        stored = (
+            StoredFile.objects.filter(
+                pk=pk,
+                workspace__memberships__user=require_user(request),
+                workspace__memberships__is_active=True,
+            )
+            .distinct()
+            .first()
         )
-        return response
+        if stored is None or not stored.storage:
+            raise Http404
+        return FileResponse(
+            stored.storage.open("rb"),
+            as_attachment=False,  # inline: PDFs and images render in the tab
+            filename=stored.filename,
+            content_type=stored.content_type or None,
+        )
 
     def perform_destroy(self, instance: StoredFile) -> None:
         # The post_delete receiver removes the blob for this direct delete and

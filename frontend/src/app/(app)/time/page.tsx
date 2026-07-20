@@ -185,10 +185,12 @@ export default function TimePage() {
           />
         ) : (
           Array.from({ length: 7 }, (_, index) => addDays(weekStart, index))
+            // Newest day first — today sits on top, history reads downwards.
+            .reverse()
             .filter((day) => byDay.has(dayKey(day)))
             .map((day) => {
               const dayEntries = (byDay.get(dayKey(day)) ?? []).sort(
-                (a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime(),
+                (a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime(),
               );
               const daySeconds = dayEntries.reduce((sum, e) => sum + e.duration_seconds, 0);
               const isToday = dayKey(day) === dayKey(new Date());

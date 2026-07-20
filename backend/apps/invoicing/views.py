@@ -218,6 +218,70 @@ class InvoiceViewSet(WorkspaceScopedViewSet):
         total = money(sum((e.computed_amount for e in entries), money("0")))
         return Response({"lines": lines, "total": str(total), "entry_count": len(entries)})
 
+    @action(detail=True, methods=["get"], url_path="pdf")
+    def pdf(self, request: Request, pk: str | None = None) -> Any:
+        """Stream the voucher PDF from Lexware — draft or final.
+
+        Lexware owns the rendered document; Coreflow fetches it on demand and
+        never stores a possibly-stale copy.
+        """
+        from io import BytesIO
+
+        from django.http import FileResponse
+
+        from apps.integrations.base import ProviderHTTPError
+        from apps.integrations.lexware.client import LexwareClient, is_lexware_enabled
+        from apps.integrations.models import ExternalObjectLink, Provider
+
+        invoice = self.get_object()
+        link = ExternalObjectLink.objects.filter(
+            workspace=invoice.workspace,
+            provider=Provider.LEXWARE,
+            resource_type="invoice",
+            local_object_id=invoice.pk,
+        ).first()
+        if link is None:
+            return Response(
+                {
+                    "error": {
+                        "code": "no_remote_document",
+                        "message": "Nur an Lexware übertragene Rechnungen haben ein PDF. "
+                        "Diesen Entwurf zunächst senden.",
+                    }
+                },
+                status=http_status.HTTP_404_NOT_FOUND,
+            )
+        if not is_lexware_enabled():
+            return Response(
+                {
+                    "error": {
+                        "code": "integration_disabled",
+                        "message": "Lexware ist nicht aktiviert.",
+                    }
+                },
+                status=http_status.HTTP_409_CONFLICT,
+            )
+        try:
+            with LexwareClient() as client:
+                content = client.download_invoice_file(link.external_id)
+        except ProviderHTTPError as exc:
+            message = (
+                "Lexware stellt für diesen Beleg (noch) kein PDF bereit."
+                if exc.status_code in (404, 406)
+                else str(exc)
+            )
+            return Response(
+                {"error": {"code": "pdf_unavailable", "message": message}},
+                status=http_status.HTTP_502_BAD_GATEWAY,
+            )
+        filename = f"{invoice.invoice_number or f'Entwurf-{str(invoice.pk)[:8]}'}.pdf"
+        return FileResponse(
+            BytesIO(content),
+            as_attachment=False,
+            filename=filename,
+            content_type="application/pdf",
+        )
+
     @action(detail=True, methods=["post"], url_path="send")
     def send(self, request: Request, pk: str | None = None) -> Response:
         """Send a local draft to Lexware as a draft invoice.
