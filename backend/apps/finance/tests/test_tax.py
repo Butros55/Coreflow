@@ -16,6 +16,7 @@ from apps.finance.tax import TaxResult, compute_taxes, income_tax_tariff
 
 # The 2025 ruleset config, used directly for tariff assertions.
 CONFIG_2025 = next(r for r in DEFAULT_RULESETS if r["tax_year"] == 2025)["config"]
+CONFIG_2026 = next(r for r in DEFAULT_RULESETS if r["tax_year"] == 2026)["config"]
 
 pytestmark = pytest.mark.django_db
 
@@ -50,6 +51,13 @@ class TestIncomeTaxTariff:
         marginal = (high - low) / Decimal("100000")
         assert abs(marginal - Decimal("0.45")) < Decimal("0.001")
 
+    def test_tariff_floors_instead_of_commercial_rounding(self) -> None:
+        assert income_tax_tariff(Decimal("12096.99"), CONFIG_2025) == Decimal("0")
+
+    def test_2026_second_zone_uses_enacted_coefficient(self) -> None:
+        second_zone = CONFIG_2026["income_tax_zones"][2]
+        assert Decimal(str(second_zone["c"])) == Decimal("1034.87")
+
 
 class TestComputeTaxes:
     def _compute(self, **overrides: object) -> TaxResult:
@@ -65,7 +73,7 @@ class TestComputeTaxes:
             "church_tax_rate": Decimal("8"),
             "annual_health_insurance": Decimal("6000"),
             "safety_margin_percent": Decimal("5"),
-            "revenue_ytd": Decimal("60000"),
+            "vat_liability_ytd": Decimal("11400"),
         }
         defaults.update(overrides)
         return compute_taxes(**defaults)  # type: ignore[arg-type]
@@ -82,9 +90,11 @@ class TestComputeTaxes:
         result = self._compute(small_business=True)
         assert result.vat_reserve == Decimal("0.00")
 
-    def test_non_small_business_reserves_vat(self) -> None:
-        result = self._compute(small_business=False, revenue_ytd=Decimal("100000"))
-        # 19% of 100k net revenue.
+    def test_non_small_business_reserves_invoiced_vat(self) -> None:
+        result = self._compute(
+            small_business=False,
+            vat_liability_ytd=Decimal("19000"),
+        )
         assert result.vat_reserve == Decimal("19000.00")
 
     def test_freelancer_has_no_trade_tax(self) -> None:
@@ -94,8 +104,17 @@ class TestComputeTaxes:
     def test_sole_trader_has_trade_tax_and_credit(self) -> None:
         result = self._compute(legal_form="sole", annual_profit=Decimal("60000"))
         assert result.trade_tax > Decimal("0")
-        # §35 credit reduces the burden.
-        assert result.trade_tax_credit > Decimal("0")
+        # 60,000 - 24,500 = 35,500; 3.5% measurement amount × factor 4.
+        assert result.trade_tax_credit == Decimal("4970.00")
+
+    def test_corporation_has_no_trade_tax_allowance_and_pays_corporate_tax(self) -> None:
+        result = self._compute(legal_form="gmbh", annual_profit=Decimal("60000"))
+        # No 24,500 allowance: 60,000 × 3.5% × 400%.
+        assert result.trade_tax == Decimal("8400.00")
+        assert result.corporate_tax == Decimal("9000.00")
+        assert result.income_tax == Decimal("0.00")
+        assert result.trade_tax_credit == Decimal("0.00")
+        assert result.health_insurance == Decimal("0.00")
 
     def test_church_tax_applied_when_enabled(self) -> None:
         without = self._compute(church_tax=False)
@@ -116,6 +135,12 @@ class TestComputeTaxes:
         large = self._compute(annual_profit=Decimal("200000"))
         assert large.soli > Decimal("0")
 
+    def test_soli_phase_in_avoids_jump_above_threshold(self) -> None:
+        result = self._compute(annual_profit=Decimal("75000"))
+        full_rate = result.income_tax * Decimal("0.055")
+        phase_in = (result.income_tax - Decimal("19950")) * Decimal("0.119")
+        assert result.soli == max(min(full_rate, phase_in), Decimal("0")).quantize(Decimal("0.01"))
+
     def test_safety_margin_increases_reserve(self) -> None:
         low = self._compute(safety_margin_percent=Decimal("0"))
         high = self._compute(safety_margin_percent=Decimal("20"))
@@ -125,6 +150,7 @@ class TestComputeTaxes:
         result = self._compute()
         expected = (
             result.income_tax
+            + result.corporate_tax
             + result.soli
             + result.church_tax
             + result.trade_tax

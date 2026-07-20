@@ -31,6 +31,7 @@ class FinanceKPIs:
     unbilled_value: Decimal
     invoiced_total: Decimal
     paid_total: Decimal
+    vat_invoiced_ytd: Decimal
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -44,6 +45,7 @@ class FinanceKPIs:
             "unbilled_value": str(self.unbilled_value),
             "invoiced_total": str(self.invoiced_total),
             "paid_total": str(self.paid_total),
+            "vat_invoiced_ytd": str(self.vat_invoiced_ytd),
         }
 
 
@@ -96,6 +98,13 @@ def compute_kpis(workspace: Any, today: date | None = None) -> FinanceKPIs:
         )["total"]
         or 0
     )
+    vat_invoiced_ytd = money(
+        invoices.filter(
+            status__in=[InvoiceStatus.OPEN, InvoiceStatus.PAID, InvoiceStatus.OVERDUE],
+            invoice_date__gte=year_start,
+        ).aggregate(total=Sum("tax_amount"))["total"]
+        or 0
+    )
 
     unbilled = TimeEntry.objects.filter(
         workspace=workspace,
@@ -115,6 +124,7 @@ def compute_kpis(workspace: Any, today: date | None = None) -> FinanceKPIs:
         unbilled_value=money(unbilled["value"] or 0),
         invoiced_total=invoiced_total,
         paid_total=paid_total,
+        vat_invoiced_ytd=vat_invoiced_ytd,
     )
 
 
@@ -228,7 +238,7 @@ def compute_reserve(
         church_tax_rate=church_rate,
         annual_health_insurance=profile.estimated_monthly_health_insurance * 12,
         safety_margin_percent=profile.safety_margin_percent,
-        revenue_ytd=revenue_ytd,
+        vat_liability_ytd=kpis.vat_invoiced_ytd,
     )
 
     # Prepayments already made reduce the gap, not the recommendation.
@@ -240,11 +250,13 @@ def compute_reserve(
         "available": True,
         "tax_year": tax_year,
         "rule_version": ruleset.rule_version,
+        "legal_form": profile.legal_form,
         "projected_annual_profit": str(projected_profit),
         "profit_ytd": str(profit_ytd),
         "revenue_ytd": str(revenue_ytd),
         "expenses_ytd": str(expenses_ytd),
         "income_tax": str(result.income_tax),
+        "corporate_tax": str(result.corporate_tax),
         "soli": str(result.soli),
         "church_tax": str(result.church_tax),
         "trade_tax": str(result.trade_tax),
@@ -258,6 +270,30 @@ def compute_reserve(
         "reserve_gap": str(reserve_gap),
         "trace": result.trace_as_json(),
         "sources": ruleset.sources,
+        "limitations": [
+            (
+                "Betriebsausgaben sind noch nicht angebunden; die Gewinn- und "
+                "Steuerprognose ist deshalb konservativ und kann zu hoch ausfallen."
+            ),
+            (
+                "Die Umsatzsteuer-Reserve enthält die Steuer aus finalisierten "
+                "Ausgangsrechnungen, aber noch keine Vorsteuer oder bereits geleisteten "
+                "USt-Vorauszahlungen."
+            ),
+            (
+                "Nicht abgerechnete Zeiten fließen zum hinterlegten Stundensatz in die "
+                "Gewinnprojektion ein, nicht jedoch in die Umsatzsteuer."
+            ),
+            (
+                "Die Gesellschaftsrechnung umfasst Körperschaftsteuer, Soli und "
+                "Gewerbesteuer; persönliche Steuern der Gesellschafter sind nicht enthalten."
+                if profile.legal_form in ("ug", "gmbh")
+                else (
+                    "Persönliche Abzüge und die genaue steuerliche Behandlung von "
+                    "Kranken-/Pflegeversicherungsbeiträgen sind nicht modelliert."
+                )
+            ),
+        ],
         "disclaimer": DISCLAIMER,
     }
 
@@ -284,6 +320,7 @@ def create_snapshot(workspace: Any, today: date | None = None) -> ReserveSnapsho
             "profit_ytd": Decimal(data["profit_ytd"]),
             "projected_annual_profit": Decimal(data["projected_annual_profit"]),
             "estimated_income_tax": Decimal(data["income_tax"]),
+            "estimated_corporate_tax": Decimal(data["corporate_tax"]),
             "estimated_soli": Decimal(data["soli"]),
             "estimated_church_tax": Decimal(data["church_tax"]),
             "estimated_trade_tax": Decimal(data["trade_tax"]),

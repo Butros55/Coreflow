@@ -7,11 +7,14 @@ from typing import Any
 
 import django_filters
 from django.db import IntegrityError, transaction
+from django.http import HttpResponse
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from rest_framework import status as http_status
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 
 from apps.accounts.utils import require_user
 from apps.core.api import WorkspaceScopedViewSet
@@ -58,9 +61,96 @@ class TimeEntryViewSet(WorkspaceScopedViewSet):
     search_fields = ["description", "client__name", "project__name"]
     ordering_fields = ["started_at", "duration_seconds", "computed_amount"]
     ordering = ["-started_at"]
+    throttle_scope = "export"
 
     def extra_create_kwargs(self) -> dict[str, Any]:
         return {"user": require_user(self.request)}
+
+    # --------------------------------------------------------------- exports
+
+    def _export_entries(self) -> list[TimeEntry]:
+        """Apply the same filters as the list API and omit running timers."""
+        queryset = (
+            self.filter_queryset(self.get_queryset())
+            .filter(ended_at__isnull=False)
+            .order_by("started_at", "created_at")
+        )
+        return list(queryset)
+
+    def _export_period_label(self, entries: list[TimeEntry]) -> str:
+        start = parse_datetime(self.request.query_params.get("time_from", ""))
+        end = parse_datetime(self.request.query_params.get("time_to", ""))
+        if start and end:
+            # The filter is half-open, so the displayed last calendar day is
+            # the instant immediately before ``time_to``.
+            visible_end = end - timedelta(microseconds=1)
+            return (
+                f"Zeitraum: {timezone.localtime(start):%d.%m.%Y} – "
+                f"{timezone.localtime(visible_end):%d.%m.%Y}"
+            )
+        if entries:
+            return (
+                f"Zeitraum: {timezone.localtime(entries[0].started_at):%d.%m.%Y} – "
+                f"{timezone.localtime(entries[-1].started_at):%d.%m.%Y}"
+            )
+        return "Zeitraum: keine abgeschlossenen Einträge"
+
+    def _audit_export(self, request: Request, *, format_name: str, count: int) -> None:
+        from apps.core.audit import record_audit
+
+        workspace = self.get_workspace()
+        record_audit(
+            request,
+            "time.exported",
+            workspace=workspace,
+            target_type="timetracking.TimeEntry",
+            summary=f"{count} Zeiteinträge als {format_name.upper()} exportiert",
+            format=format_name,
+            count=count,
+            filters={
+                key: value
+                for key, value in request.query_params.items()
+                if key in {"time_from", "time_to", "client", "project", "billing_status"}
+            },
+        )
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="export.csv",
+        throttle_classes=[ScopedRateThrottle],
+    )
+    def export_csv(self, request: Request) -> HttpResponse:
+        from apps.timetracking.exports import render_timesheet_csv
+
+        entries = self._export_entries()
+        content = render_timesheet_csv(entries)
+        self._audit_export(request, format_name="csv", count=len(entries))
+        response = HttpResponse(content, content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = 'attachment; filename="coreflow-zeiterfassung.csv"'
+        return response
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="export.pdf",
+        throttle_classes=[ScopedRateThrottle],
+    )
+    def export_pdf(self, request: Request) -> HttpResponse:
+        from apps.timetracking.exports import render_timesheet_pdf
+
+        workspace = self.get_workspace()
+        assert workspace is not None
+        entries = self._export_entries()
+        content = render_timesheet_pdf(
+            entries,
+            workspace=workspace,
+            period_label=self._export_period_label(entries),
+        )
+        self._audit_export(request, format_name="pdf", count=len(entries))
+        response = HttpResponse(content, content_type="application/pdf")
+        response["Content-Disposition"] = 'attachment; filename="coreflow-zeiterfassung.pdf"'
+        return response
 
     # ------------------------------------------------------------------ timer
 

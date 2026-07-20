@@ -3,6 +3,8 @@
 import {
   ChevronLeft,
   ChevronRight,
+  FileSpreadsheet,
+  FileText,
   Play,
   Plus,
   Square,
@@ -15,6 +17,7 @@ import { toast } from 'sonner';
 import { PageHeader } from '@/components/layout/app-shell';
 import { BillingBadge } from '@/components/time/billing-badge';
 import { Button } from '@/components/ui/button';
+import { DeleteConfirmationDialog } from '@/components/ui/delete-confirmation-dialog';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { DataTable, GroupSection, Td, Th } from '@/components/ui/group-bar';
 import { Input, Label } from '@/components/ui/input';
@@ -30,6 +33,7 @@ import {
   useStopTimer,
   useTimeEntries,
   useTimer,
+  timesheetExportUrl,
   type TimeEntry,
 } from '@/lib/api/time';
 import { usePermissions } from '@/lib/session';
@@ -93,11 +97,33 @@ export default function TimePage() {
       <PageHeader
         title="Zeiterfassung"
         actions={
-          permissions.can_write ? (
-            <Button variant="secondary" onClick={() => setCreateOpen(true)}>
-              <Plus aria-hidden /> Manueller Eintrag
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="ghost" size="sm" asChild>
+              <a
+                href={timesheetExportUrl('csv', {
+                  time_from: weekStart.toISOString(),
+                  time_to: weekEnd.toISOString(),
+                })}
+              >
+                <FileSpreadsheet aria-hidden /> CSV
+              </a>
             </Button>
-          ) : undefined
+            <Button variant="ghost" size="sm" asChild>
+              <a
+                href={timesheetExportUrl('pdf', {
+                  time_from: weekStart.toISOString(),
+                  time_to: weekEnd.toISOString(),
+                })}
+              >
+                <FileText aria-hidden /> PDF
+              </a>
+            </Button>
+            {permissions.can_write ? (
+              <Button variant="secondary" onClick={() => setCreateOpen(true)}>
+                <Plus aria-hidden /> Manueller Eintrag
+              </Button>
+            ) : null}
+          </div>
         }
       >
         <div className="flex flex-wrap items-center gap-2 pt-3 pb-3">
@@ -357,74 +383,94 @@ function TimerPanel() {
 
 function DayTable({ entries, canEdit }: { entries: TimeEntry[]; canEdit: boolean }) {
   const deleteEntry = useDeleteTimeEntry();
+  const [entryToDelete, setEntryToDelete] = React.useState<TimeEntry | null>(null);
   return (
-    <DataTable>
-      <thead>
-        <tr>
-          <Th className="w-24">Zeit</Th>
-          <Th>Kunde / Projekt</Th>
-          <Th className="w-[30%]">Beschreibung</Th>
-          <Th>Leistungsart</Th>
-          <Th className="text-right">Dauer</Th>
-          <Th className="text-right">Betrag</Th>
-          <Th>Abrechnung</Th>
-          {canEdit ? <Th className="w-10" aria-label="Aktionen" /> : null}
-        </tr>
-      </thead>
-      <tbody>
-        {entries.map((entry) => {
-          const locked = ['invoice_draft_created', 'billed'].includes(entry.billing_status);
-          return (
-            <tr key={entry.id} className="group last:[&>td]:border-b-0">
-              <Td className="tabular whitespace-nowrap text-[var(--color-ink-muted)]">
-                {new Date(entry.started_at).toLocaleTimeString('de-DE', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
-              </Td>
-              <Td>
-                <div className="font-medium">{entry.client_name}</div>
-                {entry.project_name ? (
-                  <div className="text-[length:var(--text-2xs)] text-[var(--color-ink-subtle)]">
-                    {entry.project_name}
-                  </div>
-                ) : null}
-              </Td>
-              <Td>{entry.description || '—'}</Td>
-              <Td className="text-[var(--color-ink-muted)]">{entry.service_type_name ?? '—'}</Td>
-              <Td className="tabular text-right font-medium">
-                {formatHours(entry.duration_seconds / 3600)}
-              </Td>
-              <Td className="tabular text-right">
-                {entry.billable ? formatMoney(entry.computed_amount) : '—'}
-              </Td>
-              <Td>
-                <BillingBadge status={entry.billing_status} />
-              </Td>
-              {canEdit ? (
-                <Td className="text-right">
-                  {!locked ? (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        deleteEntry.mutate(entry.id, {
-                          onSuccess: () => toast.success('Eintrag gelöscht.'),
-                          onError: () => toast.error('Löschen fehlgeschlagen.'),
-                        })
-                      }
-                      aria-label="Eintrag löschen"
-                      className="invisible rounded p-1 text-[var(--color-ink-subtle)] group-hover:visible hover:text-[var(--color-danger)]"
-                    >
-                      <Trash2 className="size-3.5" aria-hidden />
-                    </button>
+    <>
+      <DataTable>
+        <thead>
+          <tr>
+            <Th className="w-24">Zeit</Th>
+            <Th>Kunde / Projekt</Th>
+            <Th className="w-[30%]">Beschreibung</Th>
+            <Th>Leistungsart</Th>
+            <Th className="text-right">Dauer</Th>
+            <Th className="text-right">Betrag</Th>
+            <Th>Abrechnung</Th>
+            {canEdit ? <Th className="w-10" aria-label="Aktionen" /> : null}
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map((entry) => {
+            const locked = ['invoice_draft_created', 'billed'].includes(entry.billing_status);
+            return (
+              <tr key={entry.id} className="group last:[&>td]:border-b-0">
+                <Td className="tabular whitespace-nowrap text-[var(--color-ink-muted)]">
+                  {new Date(entry.started_at).toLocaleTimeString('de-DE', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </Td>
+                <Td>
+                  <div className="font-medium">{entry.client_name}</div>
+                  {entry.project_name ? (
+                    <div className="text-[length:var(--text-2xs)] text-[var(--color-ink-subtle)]">
+                      {entry.project_name}
+                    </div>
                   ) : null}
                 </Td>
-              ) : null}
-            </tr>
-          );
-        })}
-      </tbody>
-    </DataTable>
+                <Td>{entry.description || '—'}</Td>
+                <Td className="text-[var(--color-ink-muted)]">{entry.service_type_name ?? '—'}</Td>
+                <Td className="tabular text-right font-medium">
+                  {formatHours(entry.duration_seconds / 3600)}
+                </Td>
+                <Td className="tabular text-right">
+                  {entry.billable ? formatMoney(entry.computed_amount) : '—'}
+                </Td>
+                <Td>
+                  <BillingBadge status={entry.billing_status} />
+                </Td>
+                {canEdit ? (
+                  <Td className="text-right">
+                    {!locked ? (
+                      <button
+                        type="button"
+                        onClick={() => setEntryToDelete(entry)}
+                        aria-label="Eintrag löschen"
+                        className="invisible rounded p-1 text-[var(--color-ink-subtle)] group-hover:visible hover:text-[var(--color-danger)]"
+                      >
+                        <Trash2 className="size-3.5" aria-hidden />
+                      </button>
+                    ) : null}
+                  </Td>
+                ) : null}
+              </tr>
+            );
+          })}
+        </tbody>
+      </DataTable>
+      <DeleteConfirmationDialog
+        open={Boolean(entryToDelete)}
+        onOpenChange={(open) => !open && setEntryToDelete(null)}
+        title="Zeiteintrag löschen?"
+        itemName={
+          entryToDelete
+            ? `${entryToDelete.description || entryToDelete.client_name} · ${new Date(entryToDelete.started_at).toLocaleDateString('de-DE')}`
+            : ''
+        }
+        message="Der erfasste Zeitwert wird unwiderruflich entfernt. Bereits einem Rechnungsentwurf oder einer Rechnung zugeordnete Zeiten können nicht gelöscht werden."
+        isPending={deleteEntry.isPending}
+        onConfirm={() => {
+          if (!entryToDelete) return;
+          deleteEntry.mutate(entryToDelete.id, {
+            onSuccess: () => {
+              toast.success('Eintrag gelöscht.');
+              setEntryToDelete(null);
+            },
+            onError: (error) => toast.error(error.message),
+          });
+        }}
+      />
+    </>
   );
 }
 

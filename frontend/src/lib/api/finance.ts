@@ -13,6 +13,7 @@ export interface FinanceKPIs {
   unbilled_value: string;
   invoiced_total: string;
   paid_total: string;
+  vat_invoiced_ytd: string;
 }
 
 export interface BreakdownRow {
@@ -43,11 +44,13 @@ export interface ReserveForecast {
   message?: string;
   tax_year?: number;
   rule_version?: string;
+  legal_form?: TaxProfile['legal_form'];
   projected_annual_profit?: string;
   profit_ytd?: string;
   revenue_ytd?: string;
   expenses_ytd?: string;
   income_tax?: string;
+  corporate_tax?: string;
   soli?: string;
   church_tax?: string;
   trade_tax?: string;
@@ -61,6 +64,7 @@ export interface ReserveForecast {
   reserve_gap?: string;
   trace?: TraceStep[];
   sources?: SourceNote[];
+  limitations?: string[];
   disclaimer: string;
 }
 

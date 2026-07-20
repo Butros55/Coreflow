@@ -9,6 +9,7 @@ from typing import Any
 import django_filters
 from django.db import transaction
 from django.db.models import Count, Prefetch, Q, Sum
+from django.utils import timezone
 from rest_framework import status as http_status
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -74,28 +75,190 @@ class ProjectViewSet(WorkspaceScopedViewSet):
         return Response(self.get_serializer(instance).data)
 
     def _compute_stats(self, ids: Sequence[Any]) -> dict[str, dict[str, Any]]:
-        from apps.timetracking.models import TimeEntry
+        from apps.invoicing.models import Invoice, InvoiceStatus, InvoiceTimeEntry
+        from apps.timetracking.models import BillingStatus, TimeEntry
 
-        stats = {str(pk): {"open_tasks": 0, "done_tasks": 0, "logged_seconds": 0} for pk in ids}
+        def empty_stats() -> dict[str, Any]:
+            return {
+                # Kept for the existing list cards.
+                "open_tasks": 0,
+                "done_tasks": 0,
+                "logged_seconds": 0,
+                "tasks": {
+                    "total": 0,
+                    "open": 0,
+                    "done": 0,
+                    "overdue": 0,
+                    "in_progress": 0,
+                    "review": 0,
+                    "stuck": 0,
+                },
+                "time": {
+                    "total_seconds": 0,
+                    "billable_seconds": 0,
+                    "unbilled_seconds": 0,
+                    "draft_seconds": 0,
+                    "billed_seconds": 0,
+                    "paid_seconds": 0,
+                    "non_billable_seconds": 0,
+                    "total_value": "0.00",
+                    "unbilled_value": "0.00",
+                    "draft_value": "0.00",
+                    "billed_value": "0.00",
+                    "paid_value": "0.00",
+                },
+                "invoices": {
+                    "total_count": 0,
+                    "draft_count": 0,
+                    "open_count": 0,
+                    "overdue_count": 0,
+                    "paid_count": 0,
+                    "invoiced_net": "0.00",
+                    "open_gross": "0.00",
+                    "paid_net": "0.00",
+                },
+            }
+
+        stats = {str(pk): empty_stats() for pk in ids}
+        today = timezone.localdate()
         tasks = (
             Task.objects.filter(project_id__in=ids, archived=False)
             .values("project_id")
             .annotate(
+                total=Count("id"),
                 open=Count("id", filter=~Q(status="done")),
                 done=Count("id", filter=Q(status="done")),
+                overdue=Count("id", filter=Q(due_date__lt=today) & ~Q(status="done")),
+                in_progress=Count("id", filter=Q(status="in_progress")),
+                review=Count("id", filter=Q(status="review")),
+                stuck=Count("id", filter=Q(status="stuck")),
             )
         )
         for row in tasks:
             entry = stats[str(row["project_id"])]
             entry["open_tasks"] = row["open"]
             entry["done_tasks"] = row["done"]
+            entry["tasks"] = {key: row[key] for key in entry["tasks"]}
         time = (
             TimeEntry.objects.filter(project_id__in=ids, ended_at__isnull=False)
             .values("project_id")
-            .annotate(seconds=Sum("duration_seconds"))
+            .annotate(
+                total_seconds=Sum("duration_seconds"),
+                billable_seconds=Sum("duration_seconds", filter=Q(billable=True), default=0),
+                unbilled_seconds=Sum(
+                    "duration_seconds",
+                    filter=Q(billing_status__in=[BillingStatus.OPEN, BillingStatus.MARKED]),
+                    default=0,
+                ),
+                draft_seconds=Sum(
+                    "duration_seconds",
+                    filter=Q(billing_status=BillingStatus.DRAFT_CREATED),
+                    default=0,
+                ),
+                billed_seconds=Sum(
+                    "duration_seconds",
+                    filter=Q(billing_status=BillingStatus.BILLED),
+                    default=0,
+                ),
+                non_billable_seconds=Sum(
+                    "duration_seconds",
+                    filter=Q(billing_status=BillingStatus.NOT_BILLABLE),
+                    default=0,
+                ),
+                total_value=Sum("computed_amount", filter=Q(billable=True), default=0),
+                unbilled_value=Sum(
+                    "computed_amount",
+                    filter=Q(billing_status__in=[BillingStatus.OPEN, BillingStatus.MARKED]),
+                    default=0,
+                ),
+                draft_value=Sum(
+                    "computed_amount",
+                    filter=Q(billing_status=BillingStatus.DRAFT_CREATED),
+                    default=0,
+                ),
+                billed_value=Sum(
+                    "computed_amount",
+                    filter=Q(billing_status=BillingStatus.BILLED),
+                    default=0,
+                ),
+            )
         )
         for row in time:
-            stats[str(row["project_id"])]["logged_seconds"] = row["seconds"] or 0
+            entry = stats[str(row["project_id"])]
+            entry["logged_seconds"] = row["total_seconds"] or 0
+            for key in (
+                "total_seconds",
+                "billable_seconds",
+                "unbilled_seconds",
+                "draft_seconds",
+                "billed_seconds",
+                "non_billable_seconds",
+            ):
+                entry["time"][key] = row[key] or 0
+            for key in ("total_value", "unbilled_value", "draft_value", "billed_value"):
+                entry["time"][key] = str(row[key] or Decimal("0.00"))
+
+        paid_links = (
+            InvoiceTimeEntry.objects.filter(
+                time_entry__project_id__in=ids,
+                invoice__status=InvoiceStatus.PAID,
+                invoice_cancelled=False,
+            )
+            .values("time_entry__project_id")
+            .annotate(
+                seconds=Sum("duration_seconds_taken"),
+                value=Sum("amount_taken"),
+            )
+        )
+        for row in paid_links:
+            entry = stats[str(row["time_entry__project_id"])]["time"]
+            entry["paid_seconds"] = row["seconds"] or 0
+            entry["paid_value"] = str(row["value"] or Decimal("0.00"))
+
+        invoices = (
+            Invoice.objects.filter(project_id__in=ids)
+            .exclude(status=InvoiceStatus.VOIDED)
+            .values("project_id")
+            .annotate(
+                total_count=Count("id"),
+                draft_count=Count(
+                    "id",
+                    filter=Q(status__in=[InvoiceStatus.DRAFT_LOCAL, InvoiceStatus.DRAFT_REMOTE]),
+                ),
+                open_count=Count("id", filter=Q(status=InvoiceStatus.OPEN)),
+                overdue_count=Count("id", filter=Q(status=InvoiceStatus.OVERDUE)),
+                paid_count=Count("id", filter=Q(status=InvoiceStatus.PAID)),
+                invoiced_net=Sum(
+                    "net_amount",
+                    filter=Q(
+                        status__in=[
+                            InvoiceStatus.OPEN,
+                            InvoiceStatus.OVERDUE,
+                            InvoiceStatus.PAID,
+                        ]
+                    ),
+                    default=0,
+                ),
+                open_gross=Sum(
+                    "open_amount",
+                    filter=Q(status__in=[InvoiceStatus.OPEN, InvoiceStatus.OVERDUE]),
+                    default=0,
+                ),
+                paid_net=Sum("net_amount", filter=Q(status=InvoiceStatus.PAID), default=0),
+            )
+        )
+        for row in invoices:
+            invoice_stats = stats[str(row["project_id"])]["invoices"]
+            for key in (
+                "total_count",
+                "draft_count",
+                "open_count",
+                "overdue_count",
+                "paid_count",
+            ):
+                invoice_stats[key] = row[key]
+            for key in ("invoiced_net", "open_gross", "paid_net"):
+                invoice_stats[key] = str(row[key] or Decimal("0.00"))
         return stats
 
     def perform_create(self, serializer: Any) -> None:
@@ -163,7 +326,7 @@ class TaskFilter(django_filters.FilterSet):
 
 class TaskViewSet(WorkspaceScopedViewSet):
     queryset = (
-        Task.objects.select_related("project", "project__client", "sprint", "phase")
+        Task.objects.select_related("project", "project__client", "sprint", "phase", "parent")
         .prefetch_related("assignees")
         .annotate(
             logged_seconds=Sum("time_entries__duration_seconds", default=0),

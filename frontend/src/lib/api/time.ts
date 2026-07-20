@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { api, type Paginated } from '@/lib/api/client';
+import { API_BASE, api, type Paginated } from '@/lib/api/client';
 
 export type BillingStatus =
   'not_billable' | 'open' | 'marked_for_invoice' | 'invoice_draft_created' | 'billed' | 'cancelled';
@@ -63,6 +63,18 @@ export interface TimeEntryListParams {
   client?: string;
   project?: string;
   billing_status?: BillingStatus;
+}
+
+export function timesheetExportUrl(
+  format: 'csv' | 'pdf',
+  params: TimeEntryListParams = {},
+): string {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== '') query.set(key, String(value));
+  }
+  const suffix = query.size > 0 ? `?${query.toString()}` : '';
+  return `${API_BASE}/time-entries/export.${format}/${suffix}`;
 }
 
 export function useTimeEntries(params: TimeEntryListParams) {

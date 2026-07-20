@@ -90,7 +90,6 @@ class StoredFileViewSet(WorkspaceScopedViewSet):
         return response
 
     def perform_destroy(self, instance: StoredFile) -> None:
-        # Remove the blob, then the row.
-        if instance.storage:
-            instance.storage.delete(save=False)
+        # The post_delete receiver removes the blob for this direct delete and
+        # for cascades triggered by deleting a client, project or task.
         instance.delete()

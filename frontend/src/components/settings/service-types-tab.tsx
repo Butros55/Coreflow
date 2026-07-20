@@ -5,12 +5,18 @@ import * as React from 'react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
+import { DeleteConfirmationDialog } from '@/components/ui/delete-confirmation-dialog';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { DataTable, Td, Th } from '@/components/ui/group-bar';
 import { Input, Label } from '@/components/ui/input';
 import { EmptyState, Panel } from '@/components/ui/panel';
 import { StatusTint } from '@/components/ui/status-pill';
-import { useDeleteServiceType, useSaveServiceType, useServiceTypesAll } from '@/lib/api/settings';
+import {
+  useDeleteServiceType,
+  useSaveServiceType,
+  useServiceTypesAll,
+  type ServiceType,
+} from '@/lib/api/settings';
 import { usePermissions } from '@/lib/session';
 import { formatMoney } from '@/lib/utils';
 
@@ -19,6 +25,7 @@ export function ServiceTypesTab() {
   const permissions = usePermissions();
   const remove = useDeleteServiceType();
   const [dialogOpen, setDialogOpen] = React.useState(false);
+  const [serviceToDelete, setServiceToDelete] = React.useState<ServiceType | null>(null);
   const services = data?.results ?? [];
 
   return (
@@ -66,12 +73,7 @@ export function ServiceTypesTab() {
                     <Td className="text-right">
                       <button
                         type="button"
-                        onClick={() =>
-                          remove.mutate(service.id, {
-                            onSuccess: () => toast.success('Gelöscht.'),
-                            onError: () => toast.error('Löschen fehlgeschlagen.'),
-                          })
-                        }
+                        onClick={() => setServiceToDelete(service)}
                         aria-label="Löschen"
                         className="invisible rounded p-1 text-[var(--color-ink-subtle)] group-hover:visible hover:text-[var(--color-danger)]"
                       >
@@ -86,6 +88,24 @@ export function ServiceTypesTab() {
         </Panel>
       )}
       <ServiceTypeDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+      <DeleteConfirmationDialog
+        open={Boolean(serviceToDelete)}
+        onOpenChange={(open) => !open && setServiceToDelete(null)}
+        title="Leistungsart löschen?"
+        itemName={serviceToDelete?.name ?? ''}
+        message="Bestehende Zeiteinträge bleiben erhalten, verlieren aber die Zuordnung zu dieser Leistungsart."
+        isPending={remove.isPending}
+        onConfirm={() => {
+          if (!serviceToDelete) return;
+          remove.mutate(serviceToDelete.id, {
+            onSuccess: () => {
+              toast.success('Leistungsart gelöscht.');
+              setServiceToDelete(null);
+            },
+            onError: (error) => toast.error(error.message),
+          });
+        }}
+      />
     </div>
   );
 }

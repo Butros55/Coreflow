@@ -8,6 +8,8 @@ claim, not a fact).
 from __future__ import annotations
 
 from django.db import models
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 from django.utils.translation import gettext_lazy as _
 
 from apps.core.models import BaseModel, WorkspaceScopedModel
@@ -62,3 +64,11 @@ class StoredFile(WorkspaceScopedModel, BaseModel):
 
     def __str__(self) -> str:
         return self.filename
+
+
+@receiver(post_delete, sender=StoredFile)
+def delete_stored_blob(sender: type[StoredFile], instance: StoredFile, **kwargs: object) -> None:
+    """Remove object-storage bytes for direct and cascading database deletes."""
+    del sender, kwargs
+    if instance.storage:
+        instance.storage.delete(save=False)

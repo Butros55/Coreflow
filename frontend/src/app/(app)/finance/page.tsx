@@ -63,11 +63,11 @@ export default function FinancePage() {
               </div>
               <div className="space-y-4">
                 <BreakdownPanel
-                  title="Umsatz nach Kunde"
+                  title="Abgerechnete Leistung nach Kunde"
                   rows={dashboard?.breakdown.by_client ?? []}
                 />
                 <BreakdownPanel
-                  title="Umsatz nach Leistungsart"
+                  title="Abgerechnete Leistung nach Leistungsart"
                   rows={dashboard?.breakdown.by_service ?? []}
                 />
               </div>
@@ -121,6 +121,21 @@ function ReservePanel({ reserve }: { reserve: ReserveForecast | undefined }) {
         </span>
       </PanelHeader>
       <PanelBody className="space-y-4">
+        {reserve.limitations && reserve.limitations.length > 0 ? (
+          <div className="rounded-[var(--radius-sm)] border border-[var(--color-warning)] bg-[var(--color-warning-soft)] p-3">
+            <div className="mb-1.5 flex items-center gap-1.5 text-[length:var(--text-xs)] font-semibold text-[var(--color-warning)]">
+              <AlertTriangle className="size-3.5" aria-hidden /> Grenzen dieser Prognose
+            </div>
+            <ul className="space-y-1 pl-4 text-[length:var(--text-2xs)] text-[var(--color-ink-muted)]">
+              {reserve.limitations.map((limitation) => (
+                <li key={limitation} className="list-disc">
+                  {limitation}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
         <div className="grid grid-cols-2 gap-3">
           <StatTile
             label="Empfohlene Rücklage"
@@ -300,7 +315,18 @@ function ScenarioPanel({ baseReserve }: { baseReserve: ReserveForecast | undefin
         {result?.available ? (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <StatTile label="Jahresgewinn" value={formatMoney(result.projected_annual_profit)} />
-            <StatTile label="Einkommensteuer" value={formatMoney(result.income_tax)} />
+            <StatTile
+              label={
+                result.legal_form === 'ug' || result.legal_form === 'gmbh'
+                  ? 'Körperschaftsteuer'
+                  : 'Einkommensteuer'
+              }
+              value={formatMoney(
+                result.legal_form === 'ug' || result.legal_form === 'gmbh'
+                  ? result.corporate_tax
+                  : result.income_tax,
+              )}
+            />
             <StatTile label="USt-Reserve" value={formatMoney(result.vat_reserve)} />
             <StatTile
               label="Empfohlene Rücklage"

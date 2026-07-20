@@ -105,7 +105,9 @@ export interface OpenEntriesClient {
 
 // ---------------------------------------------------------------------------
 
-export function useInvoices(params: { client?: string; status?: InvoiceStatus } = {}) {
+export function useInvoices(
+  params: { client?: string; project?: string; status?: InvoiceStatus } = {},
+) {
   return useQuery({
     queryKey: ['invoices', params],
     queryFn: () =>

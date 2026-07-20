@@ -18,9 +18,9 @@ reference-design UI: grouped client tables + client dashboard tabs, kanban with 
 drag-and-drop + deep-linkable task drawer, table view, week-based time tracking with timer
 (DB-enforced single running timer), manual entries, rounding, billing-status lifecycle, global
 timer widget, My-Tasks buckets.
-**Still open for the full phase scope:** client card view + bulk actions (P1); subtasks UI,
-dependencies, timeline/gantt, custom fields, saved views (P2); favourites, overlap warning,
-PDF/CSV export, change log (P3). Tracked per phase below.
+**Still open for the full phase scope:** bulk actions (P1); dependencies, custom fields and saved
+views (P2); favourites and overlap warning (P3). Client card view, subtasks UI, timeline/Gantt,
+PDF/CSV export and the audit change log have since been delivered.
 | 4 | Clockodo integration (optional provider) | ✅ |
 | 5 | Lexware Office integration + invoice workflow | ✅ |
 | 6 | Finance dashboard + tax/reserve forecast | ✅ |
@@ -318,8 +318,8 @@ set. The unused Playwright scaffold was removed — `make test-e2e` now runs the
 - [x] Clockodo connects from `.env` — full customer/project/service/user/entry sync, webhook
       receiver, billed-status push, invoice/payment sync from Lexware (scheduled polling)
 - [ ] Nice-to-have follow-ups: Lexware contacts import · Lexware inbound webhook receiver
-      (scheduled polling covers status/payment sync today) · client card view · subtasks UI ·
-      gantt · PDF/CSV timesheet export · audit-log UI
+      (scheduled polling covers status/payment sync today) · bulk actions · task dependencies ·
+      saved views
 - [x] Tests, linter, type check and builds pass *(for the code that exists)*
 - [x] Documentation complete
 

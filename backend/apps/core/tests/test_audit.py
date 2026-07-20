@@ -106,6 +106,28 @@ class TestAuditApi:
         assert actions.count("auth.login") == 1
         assert "workspace.updated" in actions
 
+    def test_admin_sees_failed_login_for_a_member_only(
+        self, auth_client: APIClient, workspace: Workspace
+    ) -> None:
+        AuditLogEntry.objects.create(
+            workspace=None,
+            actor=None,
+            action="auth.login_failed",
+            metadata={"email": "owner@example.com"},
+        )
+        AuditLogEntry.objects.create(
+            workspace=None,
+            actor=None,
+            action="auth.login_failed",
+            metadata={"email": "stranger@example.com"},
+        )
+
+        response = auth_client.get(reverse("audit-log-list"))
+
+        rows = [row for row in response.data["results"] if row["action"] == "auth.login_failed"]
+        assert len(rows) == 1
+        assert rows[0]["actor_email"] == "owner@example.com"
+
     def test_member_cannot_read_audit_log(self, member_client: APIClient) -> None:
         assert member_client.get(reverse("audit-log-list")).status_code == 403
 

@@ -48,6 +48,39 @@ export interface ProjectStats {
   open_tasks: number;
   done_tasks: number;
   logged_seconds: number;
+  tasks: {
+    total: number;
+    open: number;
+    done: number;
+    overdue: number;
+    in_progress: number;
+    review: number;
+    stuck: number;
+  };
+  time: {
+    total_seconds: number;
+    billable_seconds: number;
+    unbilled_seconds: number;
+    draft_seconds: number;
+    billed_seconds: number;
+    paid_seconds: number;
+    non_billable_seconds: number;
+    total_value: string;
+    unbilled_value: string;
+    draft_value: string;
+    billed_value: string;
+    paid_value: string;
+  };
+  invoices: {
+    total_count: number;
+    draft_count: number;
+    open_count: number;
+    overdue_count: number;
+    paid_count: number;
+    invoiced_net: string;
+    open_gross: string;
+    paid_net: string;
+  };
 }
 
 export interface Project {
@@ -109,6 +142,7 @@ export interface Task {
   sprint: string | null;
   sprint_name: string | null;
   parent: string | null;
+  parent_title: string | null;
   title: string;
   description: string;
   status: TaskStatus;
@@ -181,6 +215,21 @@ export function useCreateProject() {
   });
 }
 
+export function useDeleteProject() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete<void>(`/projects/${id}/`),
+    onSuccess: (_result, id) => {
+      queryClient.removeQueries({ queryKey: ['project', id] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['boards'] });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['time-entries'] });
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+    },
+  });
+}
+
 export function useBoards(params: { project?: string } = {}) {
   return useQuery({
     queryKey: ['boards', params],
@@ -215,6 +264,7 @@ export interface TaskListParams {
   sprint?: string;
   status?: TaskStatus;
   assigned_to_me?: boolean;
+  parent?: string;
   search?: string;
   archived?: boolean;
 }
@@ -263,6 +313,18 @@ export function useUpdateTask() {
     onSuccess: (task) => {
       queryClient.setQueryData(['task', task.id], task);
       invalidateTaskWorld(queryClient);
+    },
+  });
+}
+
+export function useDeleteTask() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete<void>(`/tasks/${id}/`),
+    onSuccess: (_result, id) => {
+      queryClient.removeQueries({ queryKey: ['task', id] });
+      invalidateTaskWorld(queryClient);
+      queryClient.invalidateQueries({ queryKey: ['time-entries'] });
     },
   });
 }
@@ -336,6 +398,17 @@ export function useAddComment(taskId: string) {
   return useMutation({
     mutationFn: (content: string) =>
       api.post<TaskComment>('/task-comments/', { task: taskId, content }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['task-comments', taskId] });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    },
+  });
+}
+
+export function useDeleteComment(taskId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete<void>(`/task-comments/${id}/`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['task-comments', taskId] });
       queryClient.invalidateQueries({ queryKey: ['tasks'] });

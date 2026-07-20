@@ -1,16 +1,18 @@
 'use client';
 
-import { ArrowLeft, Mail, Phone, Plus, Star } from 'lucide-react';
+import { ArrowLeft, Mail, Phone, Plus, Star, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import * as React from 'react';
 import { toast } from 'sonner';
 
 import { PageHeader } from '@/components/layout/app-shell';
+import { DeleteClientDialog } from '@/components/clients/delete-client-dialog';
 import { DetailErrorState } from '@/components/ui/detail-error';
 import { api } from '@/lib/api/client';
 import { BillingBadge } from '@/components/time/billing-badge';
 import { Button } from '@/components/ui/button';
+import { DeleteConfirmationDialog } from '@/components/ui/delete-confirmation-dialog';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { ClickableRow, DataTable, Td, Th } from '@/components/ui/group-bar';
 import { Input, Label, Textarea } from '@/components/ui/input';
@@ -32,6 +34,8 @@ import {
   useClientContacts,
   useClientNotes,
   useCreateNote,
+  useDeleteContact,
+  useDeleteNote,
   useSaveContact,
   type ClientContact,
   type ClientNote,
@@ -53,6 +57,8 @@ export default function ClientDetailPage() {
   const clientId = params.id;
   const { data: client, isLoading, error } = useClient(clientId);
   const permissions = usePermissions();
+  const router = useRouter();
+  const [deleteOpen, setDeleteOpen] = React.useState(false);
 
   if (isLoading) {
     return (
@@ -84,6 +90,16 @@ export default function ClientDetailPage() {
         actions={
           <div className="flex items-center gap-2">
             <StatusTint tone={statusTone}>{CLIENT_STATUS_LABELS[client.status]}</StatusTint>
+            {permissions.can_manage_settings ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-[var(--color-danger)]"
+                onClick={() => setDeleteOpen(true)}
+              >
+                <Trash2 aria-hidden /> Löschen
+              </Button>
+            ) : null}
             <Button variant="ghost" size="sm" asChild>
               <Link href="/clients">
                 <ArrowLeft aria-hidden /> Alle Kunden
@@ -124,6 +140,12 @@ export default function ClientDetailPage() {
           </div>
         </Tabs>
       </PageHeader>
+      <DeleteClientDialog
+        client={client}
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        onDeleted={() => router.replace('/clients')}
+      />
     </>
   );
 }
@@ -257,15 +279,12 @@ function OverviewTab({ client }: { client: NonNullable<ReturnType<typeof useClie
 
 function PrivacyPanel({ client }: { client: NonNullable<ReturnType<typeof useClient>['data']> }) {
   const permissions = usePermissions();
-  const router = useRouter();
-  const [eraseOpen, setEraseOpen] = React.useState(false);
-  const [confirmName, setConfirmName] = React.useState('');
-  const [busy, setBusy] = React.useState<'export' | 'erase' | null>(null);
+  const [busy, setBusy] = React.useState(false);
 
   if (!permissions.can_manage_settings) return null;
 
   const downloadExport = async () => {
-    setBusy('export');
+    setBusy(true);
     try {
       const bundle = await api.get<Record<string, unknown>>(`/clients/${client.id}/export/`);
       const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
@@ -279,28 +298,7 @@ function PrivacyPanel({ client }: { client: NonNullable<ReturnType<typeof useCli
     } catch {
       toast.error('Export fehlgeschlagen.');
     } finally {
-      setBusy(null);
-    }
-  };
-
-  const erase = async () => {
-    setBusy('erase');
-    try {
-      const result = await api.post<{ mode: 'deleted' | 'anonymized' }>(
-        `/clients/${client.id}/erase/`,
-        { confirm: confirmName },
-      );
-      if (result.mode === 'deleted') {
-        toast.success('Kunde vollständig gelöscht.');
-        router.push('/clients');
-      } else {
-        toast.success('Personenbezogene Daten anonymisiert. Rechnungsdaten bleiben erhalten.');
-        setEraseOpen(false);
-        window.location.reload();
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Löschen fehlgeschlagen.');
-      setBusy(null);
+      setBusy(false);
     }
   };
 
@@ -311,21 +309,8 @@ function PrivacyPanel({ client }: { client: NonNullable<ReturnType<typeof useCli
       </PanelHeader>
       <PanelBody className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant="secondary"
-            size="sm"
-            loading={busy === 'export'}
-            onClick={downloadExport}
-          >
+          <Button variant="secondary" size="sm" loading={busy} onClick={downloadExport}>
             Datenauskunft exportieren (Art. 15)
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-[var(--color-danger)]"
-            onClick={() => setEraseOpen(true)}
-          >
-            Kunden löschen / anonymisieren (Art. 17)
           </Button>
         </div>
         <p className="text-[length:var(--text-2xs)] leading-relaxed text-[var(--color-ink-subtle)]">
@@ -335,43 +320,6 @@ function PrivacyPanel({ client }: { client: NonNullable<ReturnType<typeof useCli
           vollständig gelöscht.
         </p>
       </PanelBody>
-
-      <Dialog open={eraseOpen} onOpenChange={setEraseOpen}>
-        <DialogContent title="Kunden löschen / anonymisieren">
-          <div className="space-y-3">
-            <p className="text-[length:var(--text-sm)] text-[var(--color-ink-muted)]">
-              Kontakte, Notizen und Aktivitäten werden gelöscht, personenbezogene Felder geleert.
-              Diese Aktion kann nicht rückgängig gemacht werden.
-            </p>
-            <div>
-              <Label htmlFor="erase-confirm" required>
-                Zur Bestätigung den Namen „{client.name}“ eingeben
-              </Label>
-              <Input
-                id="erase-confirm"
-                value={confirmName}
-                onChange={(e) => setConfirmName(e.target.value)}
-                autoFocus
-              />
-            </div>
-            <div className="flex justify-end gap-2 pt-1">
-              <Button type="button" variant="ghost" onClick={() => setEraseOpen(false)}>
-                Abbrechen
-              </Button>
-              <Button
-                type="button"
-                variant="primary"
-                className="bg-[var(--color-danger)] hover:bg-[var(--color-danger)]/85"
-                loading={busy === 'erase'}
-                disabled={confirmName !== client.name}
-                onClick={erase}
-              >
-                Unwiderruflich löschen
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </Panel>
   );
 }
@@ -446,7 +394,9 @@ function ProjectsTab({ clientId }: { clientId: string }) {
 function ContactsTab({ clientId, canEdit }: { clientId: string; canEdit: boolean }) {
   const { data } = useClientContacts(clientId);
   const saveContact = useSaveContact(clientId);
+  const deleteContact = useDeleteContact(clientId);
   const [dialogOpen, setDialogOpen] = React.useState(false);
+  const [contactToDelete, setContactToDelete] = React.useState<ClientContact | null>(null);
   const contacts = data?.results ?? [];
 
   return (
@@ -466,25 +416,37 @@ function ContactsTab({ clientId, canEdit }: { clientId: string; canEdit: boolean
             <Panel key={contact.id} className="p-4">
               <div className="mb-1 flex items-start justify-between gap-2">
                 <div className="font-medium">{contact.full_name}</div>
-                {contact.is_primary ? (
-                  <Star
-                    className="size-4 shrink-0 fill-[var(--color-warning)] text-[var(--color-warning)]"
-                    aria-label="Hauptansprechpartner"
-                  />
-                ) : canEdit ? (
-                  <button
-                    type="button"
-                    className="text-[length:var(--text-2xs)] text-[var(--color-ink-subtle)] hover:text-[var(--color-ink)] hover:underline"
-                    onClick={() =>
-                      saveContact.mutate(
-                        { id: contact.id, is_primary: true },
-                        { onError: () => toast.error('Konnte nicht gesetzt werden.') },
-                      )
-                    }
-                  >
-                    Als Hauptkontakt
-                  </button>
-                ) : null}
+                <div className="flex items-center gap-2">
+                  {contact.is_primary ? (
+                    <Star
+                      className="size-4 shrink-0 fill-[var(--color-warning)] text-[var(--color-warning)]"
+                      aria-label="Hauptansprechpartner"
+                    />
+                  ) : canEdit ? (
+                    <button
+                      type="button"
+                      className="text-[length:var(--text-2xs)] text-[var(--color-ink-subtle)] hover:text-[var(--color-ink)] hover:underline"
+                      onClick={() =>
+                        saveContact.mutate(
+                          { id: contact.id, is_primary: true },
+                          { onError: () => toast.error('Konnte nicht gesetzt werden.') },
+                        )
+                      }
+                    >
+                      Als Hauptkontakt
+                    </button>
+                  ) : null}
+                  {canEdit ? (
+                    <button
+                      type="button"
+                      onClick={() => setContactToDelete(contact)}
+                      aria-label={`Kontakt „${contact.full_name}“ löschen`}
+                      className="rounded p-1 text-[var(--color-ink-subtle)] hover:bg-[var(--color-danger)]/10 hover:text-[var(--color-danger)]"
+                    >
+                      <Trash2 className="size-3.5" aria-hidden />
+                    </button>
+                  ) : null}
+                </div>
               </div>
               {contact.position ? (
                 <div className="text-[length:var(--text-xs)] text-[var(--color-ink-muted)]">
@@ -512,6 +474,23 @@ function ContactsTab({ clientId, canEdit }: { clientId: string; canEdit: boolean
         </div>
       )}
       <ContactDialog open={dialogOpen} onOpenChange={setDialogOpen} clientId={clientId} />
+      <DeleteConfirmationDialog
+        open={Boolean(contactToDelete)}
+        onOpenChange={(open) => !open && setContactToDelete(null)}
+        title="Kontakt löschen?"
+        itemName={contactToDelete?.full_name ?? ''}
+        isPending={deleteContact.isPending}
+        onConfirm={() => {
+          if (!contactToDelete) return;
+          deleteContact.mutate(contactToDelete.id, {
+            onSuccess: () => {
+              toast.success('Kontakt gelöscht.');
+              setContactToDelete(null);
+            },
+            onError: (error) => toast.error(error.message),
+          });
+        }}
+      />
     </div>
   );
 }
@@ -686,8 +665,10 @@ function TimeTab({ clientId }: { clientId: string }) {
 function NotesTab({ clientId, canEdit }: { clientId: string; canEdit: boolean }) {
   const { data } = useClientNotes(clientId);
   const createNote = useCreateNote(clientId);
+  const deleteNote = useDeleteNote(clientId);
   const [content, setContent] = React.useState('');
   const [noteType, setNoteType] = React.useState<ClientNote['note_type']>('note');
+  const [noteToDelete, setNoteToDelete] = React.useState<ClientNote | null>(null);
   const notes = data?.results ?? [];
 
   const submit = () => {
@@ -747,11 +728,38 @@ function NotesTab({ clientId, canEdit }: { clientId: string; canEdit: boolean })
                   timeStyle: 'short',
                 })}
               </span>
+              {canEdit ? (
+                <button
+                  type="button"
+                  onClick={() => setNoteToDelete(note)}
+                  aria-label="Notiz löschen"
+                  className="ml-auto rounded p-1 hover:bg-[var(--color-danger)]/10 hover:text-[var(--color-danger)]"
+                >
+                  <Trash2 className="size-3.5" aria-hidden />
+                </button>
+              ) : null}
             </div>
             <p className="text-[length:var(--text-sm)] whitespace-pre-wrap">{note.content}</p>
           </Panel>
         ))
       )}
+      <DeleteConfirmationDialog
+        open={Boolean(noteToDelete)}
+        onOpenChange={(open) => !open && setNoteToDelete(null)}
+        title="Notiz löschen?"
+        itemName={noteToDelete?.content.slice(0, 80) ?? ''}
+        isPending={deleteNote.isPending}
+        onConfirm={() => {
+          if (!noteToDelete) return;
+          deleteNote.mutate(noteToDelete.id, {
+            onSuccess: () => {
+              toast.success('Notiz gelöscht.');
+              setNoteToDelete(null);
+            },
+            onError: (error) => toast.error(error.message),
+          });
+        }}
+      />
     </div>
   );
 }

@@ -41,6 +41,7 @@ class ReserveSnapshotSerializer(WorkspaceScopedSerializer):
             "existing_reserve",
             "reserve_gap",
             "estimated_income_tax",
+            "estimated_corporate_tax",
             "vat_reserve",
         ]
         read_only_fields = fields

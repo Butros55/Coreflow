@@ -143,7 +143,13 @@ ignore_errors = true
 
 # Celery ships no py.typed marker and has no stubs package.
 [[tool.mypy.overrides]]
-module = ["celery.*", "django_celery_beat.*", "django_celery_results.*", "storages.*"]
+module = [
+    "celery.*",
+    "django_celery_beat.*",
+    "django_celery_results.*",
+    "reportlab.*",
+    "storages.*",
+]
 ignore_missing_imports = true
 
 # django-filter has no stubs; FilterSet therefore types as Any, and the modules

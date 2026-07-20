@@ -5,10 +5,8 @@ rates, Gewerbesteuer figures) with a source note per value. They are installed
 idempotently by the finance seeder and can be edited or superseded by a new
 version without touching calculation code.
 
-The 2025 figures are the confidently-known baseline. The 2026 set carries the
-same structure with the announced Grundfreibetrag; values flagged provisional in
-`sources` should be verified against the final Steuergesetzgebung before relying
-on them for a real return.
+The 2025 and 2026 figures mirror the enacted tariff.  Corrections are shipped as
+new rule versions so an old snapshot remains reproducible.
 """
 
 from __future__ import annotations
@@ -25,12 +23,11 @@ _TARIFF_2025 = [
     {"type": "linear", "up_to": None, "rate": 0.45, "subtract": 19246.67},
 ]
 
-# 2026: announced Grundfreibetrag 12,348 €; the upper zone boundaries shift
-# slightly with the annual Tarifverschiebung. Encoded provisionally.
+# §32a EStG 2026.
 _TARIFF_2026 = [
     {"type": "zero", "up_to": 12348},
     {"type": "progressive", "up_to": 17799, "base": 12348, "a": 914.51, "b": 1400, "c": 0},
-    {"type": "progressive", "up_to": 69878, "base": 17799, "a": 173.10, "b": 2397, "c": 1015.13},
+    {"type": "progressive", "up_to": 69878, "base": 17799, "a": 173.10, "b": 2397, "c": 1034.87},
     {"type": "linear", "up_to": 277825, "rate": 0.42, "subtract": 11135.63},
     {"type": "linear", "up_to": None, "rate": 0.45, "subtract": 19470.38},
 ]
@@ -40,7 +37,8 @@ _COMMON: dict[str, Any] = {
     "vat_reduced_rate": 7,
     "trade_tax_base_rate": 3.5,  # Steuermesszahl
     "trade_tax_allowance": 24500,  # Freibetrag für natürliche Personen
-    "trade_tax_credit_factor": 3.8,  # §35 EStG
+    "trade_tax_credit_factor": 4.0,  # §35 EStG
+    "corporate_tax_rate": 15,  # §23 KStG (through 2027)
     "soli_rate": 5.5,
 }
 
@@ -58,8 +56,9 @@ def _sources(year: int, provisional: bool) -> list[dict[str, str]]:
         {
             "field": "trade_tax_credit_factor",
             "source": "§35 EStG",
-            "note": "3,8-fache des Messbetrags",
+            "note": "4-fache des Messbetrags",
         },
+        {"field": "corporate_tax_rate", "source": "§23 KStG", "note": "15%"},
         {"field": "soli_rate", "source": "SolzG", "note": "5,5% über Freigrenze"},
     ]
 
@@ -67,7 +66,7 @@ def _sources(year: int, provisional: bool) -> list[dict[str, str]]:
 DEFAULT_RULESETS: list[dict[str, Any]] = [
     {
         "tax_year": 2025,
-        "rule_version": "1",
+        "rule_version": "2",
         "valid_from": date(2025, 1, 1),
         "config": {
             **_COMMON,
@@ -78,14 +77,14 @@ DEFAULT_RULESETS: list[dict[str, Any]] = [
     },
     {
         "tax_year": 2026,
-        "rule_version": "1",
+        "rule_version": "2",
         "valid_from": date(2026, 1, 1),
         "config": {
             **_COMMON,
             "income_tax_zones": _TARIFF_2026,
             "soli_free_limit": 20350,
         },
-        "sources": _sources(2026, provisional=True),
+        "sources": _sources(2026, provisional=False),
     },
 ]
 

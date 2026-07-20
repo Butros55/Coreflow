@@ -1,6 +1,7 @@
 'use client';
 
 import { PageHeader } from '@/components/layout/app-shell';
+import { AuditLogTab } from '@/components/settings/audit-log-tab';
 import { CompanyTab } from '@/components/settings/company-tab';
 import { IntegrationsTab } from '@/components/settings/integrations-tab';
 import { ServiceTypesTab } from '@/components/settings/service-types-tab';
@@ -24,6 +25,9 @@ export default function SettingsPage() {
             {permissions.can_manage_integrations ? (
               <TabsTrigger value="integrations">Integrationen</TabsTrigger>
             ) : null}
+            {permissions.can_manage_settings ? (
+              <TabsTrigger value="audit">Audit-Protokoll</TabsTrigger>
+            ) : null}
           </TabsList>
 
           <div className="-mx-5 border-t border-[var(--color-line)] bg-[var(--color-canvas)] px-5 pt-5 pb-5">
@@ -42,6 +46,11 @@ export default function SettingsPage() {
             {permissions.can_manage_integrations ? (
               <TabsContent value="integrations">
                 <IntegrationsTab />
+              </TabsContent>
+            ) : null}
+            {permissions.can_manage_settings ? (
+              <TabsContent value="audit">
+                <AuditLogTab />
               </TabsContent>
             ) : null}
           </div>

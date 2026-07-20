@@ -1,11 +1,12 @@
 'use client';
 
-import { ChevronLeft, ChevronRight, Download, Plus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Plus, Trash2 } from 'lucide-react';
 import * as React from 'react';
 import { toast } from 'sonner';
 
 import { PageHeader } from '@/components/layout/app-shell';
 import { Button } from '@/components/ui/button';
+import { DeleteConfirmationDialog } from '@/components/ui/delete-confirmation-dialog';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Input, Label, Textarea } from '@/components/ui/input';
 import { Panel } from '@/components/ui/panel';
@@ -16,6 +17,7 @@ import {
   APPOINTMENT_STATUS_LABELS,
   appointmentsIcsUrl,
   useAppointments,
+  useDeleteAppointment,
   useSaveAppointment,
   type Appointment,
   type AppointmentStatus,
@@ -58,6 +60,7 @@ export default function CalendarPage() {
   const [month, setMonth] = React.useState(() => monthStart(new Date()));
   const [createOpen, setCreateOpen] = React.useState(false);
   const [createDate, setCreateDate] = React.useState<string | null>(null);
+  const [selectedAppointment, setSelectedAppointment] = React.useState<Appointment | null>(null);
 
   const gridStart = monthGrid(month)[0]!;
   const gridEnd = new Date(gridStart);
@@ -154,10 +157,14 @@ export default function CalendarPage() {
                 (a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime(),
               );
               return (
-                <button
+                <div
                   key={key}
-                  type="button"
+                  role={permissions.can_write ? 'button' : undefined}
+                  tabIndex={permissions.can_write ? 0 : undefined}
                   onClick={() => permissions.can_write && openCreate(day)}
+                  onKeyDown={(event) => {
+                    if (permissions.can_write && event.key === 'Enter') openCreate(day);
+                  }}
                   className={cn(
                     'min-h-24 border-r border-b border-[var(--color-line-subtle)] p-1.5 text-left align-top transition-colors last:border-r-0 hover:bg-[var(--color-panel-raised)]',
                     !inMonth && 'bg-[var(--color-panel-sunken)] opacity-60',
@@ -175,8 +182,13 @@ export default function CalendarPage() {
                   </div>
                   <div className="space-y-1">
                     {dayAppts.slice(0, 3).map((appt) => (
-                      <div
+                      <button
+                        type="button"
                         key={appt.id}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setSelectedAppointment(appt);
+                        }}
                         className="truncate rounded-[var(--radius-xs)] px-1.5 py-0.5 text-[length:var(--text-2xs)]"
                         style={{
                           backgroundColor: `var(--color-status-${STATUS_TONES[appt.status]}-soft)`,
@@ -189,7 +201,7 @@ export default function CalendarPage() {
                           minute: '2-digit',
                         })}{' '}
                         {appt.title}
-                      </div>
+                      </button>
                     ))}
                     {dayAppts.length > 3 ? (
                       <div className="px-1.5 text-[length:var(--text-2xs)] text-[var(--color-ink-subtle)]">
@@ -197,21 +209,33 @@ export default function CalendarPage() {
                       </div>
                     ) : null}
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>
         </Panel>
 
-        <UpcomingList appointments={appointments} />
+        <UpcomingList appointments={appointments} onOpen={setSelectedAppointment} />
       </div>
 
       <AppointmentDialog open={createOpen} onOpenChange={setCreateOpen} defaultDate={createDate} />
+      <AppointmentDialog
+        open={Boolean(selectedAppointment)}
+        onOpenChange={(open) => !open && setSelectedAppointment(null)}
+        defaultDate={null}
+        appointment={selectedAppointment}
+      />
     </>
   );
 }
 
-function UpcomingList({ appointments }: { appointments: Appointment[] }) {
+function UpcomingList({
+  appointments,
+  onOpen,
+}: {
+  appointments: Appointment[];
+  onOpen: (appointment: Appointment) => void;
+}) {
   const now = new Date();
   const upcoming = appointments
     .filter((a) => new Date(a.ends_at) >= now && a.status !== 'cancelled')
@@ -225,7 +249,14 @@ function UpcomingList({ appointments }: { appointments: Appointment[] }) {
       </h2>
       <div className="space-y-2">
         {upcoming.map((appt) => (
-          <Panel key={appt.id} className="flex items-center gap-3 p-3">
+          <Panel
+            key={appt.id}
+            role="button"
+            tabIndex={0}
+            onClick={() => onOpen(appt)}
+            onKeyDown={(event) => event.key === 'Enter' && onOpen(appt)}
+            className="flex cursor-pointer items-center gap-3 p-3 transition-colors hover:bg-[var(--color-panel-raised)]"
+          >
             <div className="w-14 shrink-0 text-center">
               <div className="text-[length:var(--text-lg)] leading-none font-semibold">
                 {new Date(appt.starts_at).getDate()}
@@ -259,18 +290,21 @@ function AppointmentDialog({
   open,
   onOpenChange,
   defaultDate,
+  appointment = null,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   defaultDate: string | null;
+  appointment?: Appointment | null;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* Remount on each open (and clicked day) so the form starts fresh —
           the idiomatic "reset state on prop change" without an effect. */}
       <AppointmentForm
-        key={`${open}-${defaultDate}`}
+        key={`${open}-${defaultDate}-${appointment?.id ?? 'new'}`}
         defaultDate={defaultDate}
+        appointment={appointment}
         onDone={() => onOpenChange(false)}
       />
     </Dialog>
@@ -279,40 +313,54 @@ function AppointmentDialog({
 
 function AppointmentForm({
   defaultDate,
+  appointment,
   onDone,
 }: {
   defaultDate: string | null;
+  appointment: Appointment | null;
   onDone: () => void;
 }) {
   const save = useSaveAppointment();
+  const remove = useDeleteAppointment();
+  const permissions = usePermissions();
+  const [deleteOpen, setDeleteOpen] = React.useState(false);
   const { data: clientsData } = useClients({ archived: false });
   const clients = clientsData?.results ?? [];
 
+  const startsAt = appointment ? new Date(appointment.starts_at) : null;
+  const endsAt = appointment ? new Date(appointment.ends_at) : null;
   const [form, setForm] = React.useState({
-    title: '',
-    date: defaultDate ?? dayKey(new Date()),
-    start: '10:00',
-    end: '11:00',
-    clientId: '',
-    location: '',
-    description: '',
+    title: appointment?.title ?? '',
+    date: startsAt ? dayKey(startsAt) : (defaultDate ?? dayKey(new Date())),
+    start: startsAt
+      ? startsAt.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+      : '10:00',
+    end: endsAt
+      ? endsAt.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+      : '11:00',
+    clientId: appointment?.client ?? '',
+    location: appointment?.location ?? '',
+    description: appointment?.description ?? '',
+    status: appointment?.status ?? ('planned' as AppointmentStatus),
   });
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) =>
     setForm((p) => ({ ...p, [k]: v }));
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
-    if (!form.title.trim()) return;
+    if (!permissions.can_write || !form.title.trim()) return;
     const starts = new Date(`${form.date}T${form.start}:00`);
     const ends = new Date(`${form.date}T${form.end}:00`);
     save.mutate(
       {
+        id: appointment?.id,
         title: form.title.trim(),
         starts_at: starts.toISOString(),
         ends_at: ends.toISOString(),
         client: form.clientId || null,
         location: form.location,
         description: form.description,
+        status: form.status,
       },
       {
         onSuccess: () => {
@@ -325,7 +373,7 @@ function AppointmentForm({
   };
 
   return (
-    <DialogContent title="Neuer Termin">
+    <DialogContent title={appointment ? 'Termin bearbeiten' : 'Neuer Termin'}>
       <form onSubmit={submit} className="space-y-3">
         <div>
           <Label htmlFor="appt-title" required>
@@ -397,6 +445,23 @@ function AppointmentForm({
             />
           </div>
         </div>
+        {appointment ? (
+          <div>
+            <Label htmlFor="appt-status">Status</Label>
+            <Select
+              id="appt-status"
+              value={form.status}
+              onChange={(event) => set('status', event.target.value as AppointmentStatus)}
+              disabled={!permissions.can_write}
+            >
+              {Object.entries(APPOINTMENT_STATUS_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </Select>
+          </div>
+        ) : null}
         <div>
           <Label htmlFor="appt-desc">Beschreibung</Label>
           <Textarea
@@ -405,15 +470,49 @@ function AppointmentForm({
             onChange={(e) => set('description', e.target.value)}
           />
         </div>
-        <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="ghost" onClick={onDone}>
-            Abbrechen
-          </Button>
-          <Button type="submit" variant="primary" loading={save.isPending}>
-            Speichern
-          </Button>
+        <div className="flex items-center justify-between gap-2 pt-2">
+          {appointment && permissions.can_write ? (
+            <Button
+              type="button"
+              variant="ghost"
+              className="text-[var(--color-danger)]"
+              onClick={() => setDeleteOpen(true)}
+            >
+              <Trash2 aria-hidden /> Löschen
+            </Button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
+            <Button type="button" variant="ghost" onClick={onDone}>
+              Abbrechen
+            </Button>
+            {permissions.can_write ? (
+              <Button type="submit" variant="primary" loading={save.isPending}>
+                Speichern
+              </Button>
+            ) : null}
+          </div>
         </div>
       </form>
+      {appointment ? (
+        <DeleteConfirmationDialog
+          open={deleteOpen}
+          onOpenChange={setDeleteOpen}
+          title="Termin löschen?"
+          itemName={appointment.title}
+          isPending={remove.isPending}
+          onConfirm={() =>
+            remove.mutate(appointment.id, {
+              onSuccess: () => {
+                toast.success('Termin gelöscht.');
+                onDone();
+              },
+              onError: (error) => toast.error(error.message),
+            })
+          }
+        />
+      ) : null}
     </DialogContent>
   );
 }

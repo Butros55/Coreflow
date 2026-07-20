@@ -265,12 +265,12 @@ POST is never blindly retried; a reconciliation task searches the voucherlist fo
 
 ---
 
-## 7. Finance ⬜ (Phase 6)
+## 7. Finance ✅ (Phase 6)
 
 ### `finance.TaxProfile`
 `tax_year`, `legal_form`, `small_business`, `other_taxable_income`, `trade_tax_multiplier`
-(Hebesatz), `trade_tax_allowance` (Freibetrag), `church_tax`, `federal_state`,
-`health_insurance_status`, `estimated_health_insurance`, `safety_margin_percent`,
+(Hebesatz), `joint_assessment`, `church_tax`, `federal_state`,
+`health_insurance_status`, `estimated_monthly_health_insurance`, `safety_margin_percent`,
 `prepayments_made`, `existing_reserve`.
 
 ### `finance.TaxRuleSet`
@@ -281,16 +281,23 @@ POST is never blindly retried; a reconciliation task searches the voucherlist fo
 > official German source. A tax rate hardcoded in a function is a rate nobody can audit, and it is
 > silently wrong the year it changes.
 
+Rule version 2 corrects the §35 EStG factor to 4, applies the Gewerbesteuer allowance only to
+natural persons, uses the enacted 2026 §32a tariff, and models UG/GmbH with 15% corporation tax.
+Old rules remain stored so historic snapshots stay reproducible.
+
 ### `finance.ReserveSnapshot`
 `snapshot_date`, `revenue_ytd`, `expenses_ytd`, `profit_ytd`, `estimated_income_tax`,
+`estimated_corporate_tax`,
 `estimated_soli`, `estimated_church_tax`, `estimated_trade_tax`, `trade_tax_credit`,
 `vat_reserve`, `health_insurance_buffer`, `safety_buffer`, `recommended_reserve`,
-`actual_reserve`, `reserve_gap`, `calculation_trace` (JSONB), `rule_set`.
+`existing_reserve`, `reserve_gap`, `calculation_trace` (JSONB), `rule_set`.
 
 `calculation_trace` stores **every step** — the requirement is that the forecast is explainable, and
 a number without its derivation is not.
 
 Output always carries: **„Unverbindliche Prognose. Kein Ersatz für eine steuerliche Beratung."**
+The API additionally returns explicit limitations (currently missing expenses, input VAT/USt
+prepayments, and personal deductions) so the forecast cannot be mistaken for a tax return.
 
 ---
 

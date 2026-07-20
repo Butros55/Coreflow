@@ -76,7 +76,14 @@ class ProjectSerializer(WorkspaceScopedSerializer):
         stats: dict[str, dict[str, Any]] = self.context.get("project_stats", {})
         return stats.get(
             str(obj.pk),
-            {"open_tasks": 0, "done_tasks": 0, "logged_seconds": 0},
+            {
+                "open_tasks": 0,
+                "done_tasks": 0,
+                "logged_seconds": 0,
+                "tasks": {},
+                "time": {},
+                "invoices": {},
+            },
         )
 
     def get_default_board(self, obj: Project) -> str | None:
@@ -145,6 +152,7 @@ class TaskSerializer(WorkspaceScopedSerializer):
     client_name = serializers.CharField(source="project.client.display_name", read_only=True)
     sprint_name = serializers.CharField(source="sprint.name", read_only=True, default=None)
     phase_name = serializers.CharField(source="phase.name", read_only=True, default=None)
+    parent_title = serializers.CharField(source="parent.title", read_only=True, default=None)
     logged_seconds = serializers.IntegerField(read_only=True, default=0)
     checklist_total = serializers.IntegerField(read_only=True, default=0)
     checklist_done = serializers.IntegerField(read_only=True, default=0)
@@ -164,6 +172,7 @@ class TaskSerializer(WorkspaceScopedSerializer):
             "sprint",
             "sprint_name",
             "parent",
+            "parent_title",
             "title",
             "description",
             "status",
@@ -203,6 +212,29 @@ class TaskSerializer(WorkspaceScopedSerializer):
         phase = attrs.get("phase")
         if phase is not None and project is not None and phase.project_id != project.pk:
             raise serializers.ValidationError({"phase": "Phase gehört nicht zu diesem Projekt."})
+
+        parent = attrs.get("parent", self.instance.parent if self.instance else None)
+        if parent is not None:
+            if project is not None and parent.project_id != project.pk:
+                raise serializers.ValidationError(
+                    {"parent": "Übergeordnete Aufgabe gehört nicht zu diesem Projekt."}
+                )
+            if board is not None and parent.board_id != board.pk:
+                raise serializers.ValidationError(
+                    {"parent": "Übergeordnete Aufgabe gehört nicht zu diesem Board."}
+                )
+
+            # Reject self-parenting and longer cycles.  The database FK cannot
+            # express this graph constraint by itself.
+            current: Task | None = parent
+            visited: set[Any] = set()
+            while current is not None and current.pk not in visited:
+                if self.instance is not None and current.pk == self.instance.pk:
+                    raise serializers.ValidationError(
+                        {"parent": "Unteraufgaben dürfen keinen Zyklus bilden."}
+                    )
+                visited.add(current.pk)
+                current = current.parent
         return attrs
 
 

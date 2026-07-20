@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowLeft, Plus, Search, SquareKanban, Table2 } from 'lucide-react';
+import { ArrowLeft, CalendarRange, Plus, Search, SquareKanban, Table2 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import * as React from 'react';
@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { KanbanBoard } from '@/components/tasks/kanban';
 import { STATUS_TONES, StatusSelect } from '@/components/tasks/status-select';
 import { TaskDrawer } from '@/components/tasks/task-drawer';
+import { TaskTimeline } from '@/components/tasks/task-timeline';
 import { AvatarStack } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { DetailErrorState } from '@/components/ui/detail-error';
@@ -52,14 +53,19 @@ function BoardPageInner() {
 
   // Derived, not synced: the board's configured default applies until the user
   // explicitly switches — no effect, no cascading render.
-  const [viewOverride, setViewOverride] = React.useState<'kanban' | 'table' | null>(null);
+  const [viewOverride, setViewOverride] = React.useState<'kanban' | 'table' | 'timeline' | null>(
+    null,
+  );
   const view = viewOverride ?? board?.default_view ?? 'kanban';
   const [search, setSearch] = React.useState('');
   const [createOpen, setCreateOpen] = React.useState(false);
 
   const listParams: TaskListParams = React.useMemo(() => ({ board: boardId }), [boardId]);
   const { data, isLoading } = useTasks(listParams);
-  const allTasks = React.useMemo(() => data?.results ?? [], [data]);
+  const allTasks = React.useMemo(
+    () => (data?.results ?? []).filter((task) => task.parent === null),
+    [data],
+  );
 
   // Client-side quick filter — the whole board is already loaded.
   const tasks = React.useMemo(() => {
@@ -125,6 +131,12 @@ function BoardPageInner() {
                 icon={<Table2 className="size-3.5" aria-hidden />}
                 label="Tabelle"
               />
+              <ViewButton
+                active={view === 'timeline'}
+                onClick={() => setViewOverride('timeline')}
+                icon={<CalendarRange className="size-3.5" aria-hidden />}
+                label="Zeitplan"
+              />
             </div>
             <div className="relative w-full max-w-56">
               <Search
@@ -158,13 +170,21 @@ function BoardPageInner() {
               onOpenTask={(taskId) => setOpenTask(taskId)}
               canEdit={permissions.can_write}
             />
-          ) : (
+          ) : view === 'table' ? (
             <TaskTable tasks={tasks} onOpenTask={(taskId) => setOpenTask(taskId)} />
+          ) : (
+            <TaskTimeline tasks={tasks} onOpenTask={(taskId) => setOpenTask(taskId)} />
           )}
         </main>
       </div>
 
-      {openTaskId ? <TaskDrawer taskId={openTaskId} onClose={() => setOpenTask(null)} /> : null}
+      {openTaskId ? (
+        <TaskDrawer
+          taskId={openTaskId}
+          onClose={() => setOpenTask(null)}
+          onOpenTask={setOpenTask}
+        />
+      ) : null}
 
       {board ? (
         <CreateTaskDialog

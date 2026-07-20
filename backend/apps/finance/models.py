@@ -140,6 +140,7 @@ class ReserveSnapshot(WorkspaceScopedModel, BaseModel):
     projected_annual_profit = models.DecimalField(max_digits=12, decimal_places=2, default=0)
 
     estimated_income_tax = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    estimated_corporate_tax = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     estimated_soli = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     estimated_church_tax = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     estimated_trade_tax = models.DecimalField(max_digits=12, decimal_places=2, default=0)

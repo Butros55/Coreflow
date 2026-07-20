@@ -30,17 +30,19 @@ export function StatusSelect({
   status,
   block = true,
   disabled = false,
+  compact = false,
 }: {
   taskId: string;
   status: TaskStatus;
   block?: boolean;
   disabled?: boolean;
+  compact?: boolean;
 }) {
   const updateTask = useUpdateTask();
 
   if (disabled) {
     return (
-      <StatusPill tone={STATUS_TONES[status]} block={block}>
+      <StatusPill tone={STATUS_TONES[status]} block={block} size={compact ? 'sm' : 'md'}>
         {TASK_STATUS_LABELS[status]}
       </StatusPill>
     );
@@ -51,11 +53,15 @@ export function StatusSelect({
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
-          className="w-full cursor-pointer transition-opacity hover:opacity-85"
+          className={
+            compact
+              ? 'shrink-0 cursor-pointer transition-opacity hover:opacity-85'
+              : 'w-full cursor-pointer transition-opacity hover:opacity-85'
+          }
           aria-label={`Status ändern (aktuell: ${TASK_STATUS_LABELS[status]})`}
           onClick={(event) => event.stopPropagation()}
         >
-          <StatusPill tone={STATUS_TONES[status]} block={block}>
+          <StatusPill tone={STATUS_TONES[status]} block={block} size={compact ? 'sm' : 'md'}>
             {TASK_STATUS_LABELS[status]}
           </StatusPill>
         </button>

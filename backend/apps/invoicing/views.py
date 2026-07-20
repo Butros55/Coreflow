@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from django.db import transaction
+from django.db.models import Q
 from rest_framework import status as http_status
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -32,12 +33,22 @@ from apps.timetracking.models import BillingStatus, TimeEntry
 class InvoiceViewSet(WorkspaceScopedViewSet):
     queryset = Invoice.objects.select_related("client", "project").prefetch_related("lines")
     serializer_class = InvoiceDetailSerializer
-    filterset_fields = {"client": ["exact"], "status": ["exact"], "project": ["exact"]}
+    filterset_fields = {"client": ["exact"], "status": ["exact"]}
     search_fields = ["invoice_number", "client__name", "title"]
     ordering_fields = ["created_at", "invoice_date", "gross_amount", "status"]
     ordering = ["-created_at"]
     # No plain create: invoices are composed from time entries, not POSTed raw.
     http_method_names = ["get", "patch", "head", "options", "post", "delete"]
+
+    def get_queryset(self) -> Any:
+        queryset = super().get_queryset()
+        project_id = self.request.query_params.get("project")
+        if project_id:
+            queryset = queryset.filter(
+                Q(project_id=project_id)
+                | Q(invoice_time_entries__time_entry__project_id=project_id)
+            ).distinct()
+        return queryset
 
     def get_serializer_class(self) -> type[Any]:
         if self.action == "list":

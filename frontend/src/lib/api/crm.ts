@@ -151,6 +151,28 @@ export function useUpdateClient(id: string) {
   });
 }
 
+export interface EraseClientResult {
+  mode: 'deleted' | 'anonymized';
+  client_id: string;
+  retained?: string[];
+  legal_basis?: string;
+}
+
+export function useEraseClient() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, confirm }: { id: string; confirm: string }) =>
+      api.post<EraseClientResult>(`/clients/${id}/erase/`, { confirm }),
+    onSuccess: (_result, { id }) => {
+      queryClient.removeQueries({ queryKey: ['client', id] });
+      queryClient.invalidateQueries({ queryKey: ['clients'] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['time-entries'] });
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+    },
+  });
+}
+
 export function useClientContacts(clientId: string | null) {
   return useQuery({
     queryKey: ['client-contacts', clientId],
@@ -175,6 +197,18 @@ export function useSaveContact(clientId: string) {
   });
 }
 
+export function useDeleteContact(clientId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete<void>(`/client-contacts/${id}/`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['client-contacts', clientId] });
+      queryClient.invalidateQueries({ queryKey: ['client', clientId] });
+      queryClient.invalidateQueries({ queryKey: ['client-activities', clientId] });
+    },
+  });
+}
+
 export function useClientNotes(clientId: string | null) {
   return useQuery({
     queryKey: ['client-notes', clientId],
@@ -189,6 +223,17 @@ export function useCreateNote(clientId: string) {
   return useMutation({
     mutationFn: (payload: { content: string; note_type: ClientNote['note_type'] }) =>
       api.post<ClientNote>('/client-notes/', { ...payload, client: clientId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['client-notes', clientId] });
+      queryClient.invalidateQueries({ queryKey: ['client-activities', clientId] });
+    },
+  });
+}
+
+export function useDeleteNote(clientId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete<void>(`/client-notes/${id}/`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['client-notes', clientId] });
       queryClient.invalidateQueries({ queryKey: ['client-activities', clientId] });

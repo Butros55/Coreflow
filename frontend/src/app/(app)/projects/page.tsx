@@ -1,12 +1,13 @@
 'use client';
 
-import { FolderKanban, Plus, Search } from 'lucide-react';
+import { FolderKanban, Plus, Search, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import * as React from 'react';
 import { toast } from 'sonner';
 
 import { PageHeader } from '@/components/layout/app-shell';
 import { Button } from '@/components/ui/button';
+import { DeleteConfirmationDialog } from '@/components/ui/delete-confirmation-dialog';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { ClickableRow, DataTable, GroupSection, Td, Th } from '@/components/ui/group-bar';
 import { Input, Label } from '@/components/ui/input';
@@ -18,6 +19,7 @@ import {
   PRIORITY_LABELS,
   PROJECT_STATUS_LABELS,
   useCreateProject,
+  useDeleteProject,
   useProjects,
   type Project,
   type ProjectStatus,
@@ -38,6 +40,8 @@ export default function ProjectsPage() {
   const permissions = usePermissions();
   const [search, setSearch] = React.useState('');
   const [createOpen, setCreateOpen] = React.useState(false);
+  const [projectToDelete, setProjectToDelete] = React.useState<Project | null>(null);
+  const deleteProject = useDeleteProject();
   const { data, isLoading } = useProjects({ search: search || undefined });
   const projects = data?.results ?? [];
 
@@ -109,6 +113,7 @@ export default function ProjectsPage() {
                     <Th className="text-right">Erfasst</Th>
                     <Th className="text-right">Budget (h)</Th>
                     <Th>Ziel</Th>
+                    {permissions.can_write ? <Th className="w-10" aria-label="Aktionen" /> : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -117,6 +122,9 @@ export default function ProjectsPage() {
                       key={project.id}
                       project={project}
                       onOpen={() => router.push(`/projects/${project.id}`)}
+                      onDelete={
+                        permissions.can_write ? () => setProjectToDelete(project) : undefined
+                      }
                     />
                   ))}
                 </tbody>
@@ -127,11 +135,37 @@ export default function ProjectsPage() {
       </div>
 
       <CreateProjectDialog open={createOpen} onOpenChange={setCreateOpen} />
+      <DeleteConfirmationDialog
+        open={Boolean(projectToDelete)}
+        onOpenChange={(open) => !open && setProjectToDelete(null)}
+        title="Projekt löschen?"
+        itemName={projectToDelete?.name ?? ''}
+        message="Alle Boards, Aufgaben, Checklisten, Kommentare und angehängten Dateien dieses Projekts werden gelöscht. Erfasste Zeiten und Rechnungen bleiben erhalten, verlieren aber ihre Projektzuordnung."
+        isPending={deleteProject.isPending}
+        onConfirm={() => {
+          if (!projectToDelete) return;
+          deleteProject.mutate(projectToDelete.id, {
+            onSuccess: () => {
+              toast.success(`Projekt „${projectToDelete.name}“ gelöscht.`);
+              setProjectToDelete(null);
+            },
+            onError: (error) => toast.error(error.message),
+          });
+        }}
+      />
     </>
   );
 }
 
-function ProjectRow({ project, onOpen }: { project: Project; onOpen: () => void }) {
+function ProjectRow({
+  project,
+  onOpen,
+  onDelete,
+}: {
+  project: Project;
+  onOpen: () => void;
+  onDelete?: () => void;
+}) {
   const logged = project.stats.logged_seconds / 3600;
   const budget = project.budget_hours ? Number(project.budget_hours) : null;
   const overBudget = budget !== null && logged > budget;
@@ -162,6 +196,18 @@ function ProjectRow({ project, onOpen }: { project: Project; onOpen: () => void 
       <Td className="text-[var(--color-ink-muted)]">
         {project.target_date ? new Date(project.target_date).toLocaleDateString('de-DE') : '—'}
       </Td>
+      {onDelete ? (
+        <Td className="text-right" onClick={(event) => event.stopPropagation()}>
+          <button
+            type="button"
+            onClick={onDelete}
+            aria-label={`Projekt „${project.name}“ löschen`}
+            className="rounded p-1 text-[var(--color-ink-subtle)] hover:bg-[var(--color-danger)]/10 hover:text-[var(--color-danger)]"
+          >
+            <Trash2 className="size-3.5" aria-hidden />
+          </button>
+        </Td>
+      ) : null}
     </ClickableRow>
   );
 }
