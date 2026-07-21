@@ -2,9 +2,10 @@
 
 import {
   ArrowLeft,
-  CalendarRange,
   Clock3,
   ListChecks,
+  Pencil,
+  Plus,
   ReceiptText,
   SquareKanban,
   Trash2,
@@ -17,6 +18,9 @@ import { toast } from 'sonner';
 
 import { InvoiceStatusBadge } from '@/components/invoices/invoice-status-badge';
 import { PageHeader } from '@/components/layout/app-shell';
+import { ProjectPlanningTab } from '@/components/projects/planning-tab';
+import { ProjectFormDialog } from '@/components/projects/project-form-dialog';
+import { CreateTaskDialog } from '@/components/tasks/create-task-dialog';
 import { TaskTimeline } from '@/components/tasks/task-timeline';
 import { BillingBadge } from '@/components/time/billing-badge';
 import { AvatarStack } from '@/components/ui/avatar';
@@ -36,6 +40,7 @@ import { PriorityPill, StatusTint } from '@/components/ui/status-pill';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useInvoices, type InvoiceListItem } from '@/lib/api/invoicing';
 import {
+  BILLING_MODEL_LABELS,
   PRIORITY_LABELS,
   PROJECT_STATUS_LABELS,
   TASK_STATUS_LABELS,
@@ -44,19 +49,11 @@ import {
   useSprints,
   useTasks,
   type Project,
-  type Sprint,
   type Task,
 } from '@/lib/api/projects';
 import { useTimeEntries, type TimeEntry } from '@/lib/api/time';
 import { usePermissions } from '@/lib/session';
 import { formatHours, formatMoney } from '@/lib/utils';
-
-const BILLING_LABELS = {
-  hourly: 'Nach Aufwand',
-  fixed: 'Festpreis',
-  retainer: 'Retainer',
-  non_billable: 'Nicht abrechenbar',
-} as const;
 
 const TASK_TONES = {
   todo: 'todo',
@@ -71,12 +68,26 @@ export default function ProjectDetailPage() {
   const router = useRouter();
   const permissions = usePermissions();
   const [deleteOpen, setDeleteOpen] = React.useState(false);
+  const [editOpen, setEditOpen] = React.useState(false);
+  const [createTaskOpen, setCreateTaskOpen] = React.useState(false);
+  const [taskDefaults, setTaskDefaults] = React.useState<{
+    sprint?: string | null;
+    phase?: string | null;
+  }>({});
   const deleteProject = useDeleteProject();
   const { data: project, isLoading, error } = useProject(params.id);
   const { data: tasksData } = useTasks({ project: params.id });
   const { data: timeData } = useTimeEntries({ project: params.id });
   const { data: invoiceData } = useInvoices({ project: params.id });
   const { data: sprintsData } = useSprints(params.id);
+
+  const openCreateTask = React.useCallback(
+    (defaults: { sprint?: string | null; phase?: string | null } = {}) => {
+      setTaskDefaults(defaults);
+      setCreateTaskOpen(true);
+    },
+    [],
+  );
 
   if (isLoading) {
     return (
@@ -118,17 +129,27 @@ export default function ProjectDetailPage() {
     <>
       <PageHeader
         title={project.name}
-        description={`${project.client_name} · ${BILLING_LABELS[project.billing_model]}`}
+        description={`${project.client_name} · ${BILLING_MODEL_LABELS[project.billing_model]}`}
         actions={
           <div className="flex items-center gap-2">
             <StatusTint tone={project.status === 'active' ? 'done' : 'hold'}>
               {PROJECT_STATUS_LABELS[project.status]}
             </StatusTint>
+            {permissions.can_write && project.default_board ? (
+              <Button variant="primary" size="sm" onClick={() => openCreateTask({})}>
+                <Plus aria-hidden /> Neue Aufgabe
+              </Button>
+            ) : null}
             {project.default_board ? (
-              <Button variant="primary" size="sm" asChild>
+              <Button variant="secondary" size="sm" asChild>
                 <Link href={`/boards/${project.default_board}`}>
                   <SquareKanban aria-hidden /> Zum Board
                 </Link>
+              </Button>
+            ) : null}
+            {permissions.can_write ? (
+              <Button variant="ghost" size="sm" onClick={() => setEditOpen(true)}>
+                <Pencil aria-hidden /> Bearbeiten
               </Button>
             ) : null}
             {permissions.can_write ? (
@@ -223,8 +244,23 @@ export default function ProjectDetailPage() {
             />
           </TabsContent>
 
-          <TabsContent value="tasks" className="pt-4">
-            <TaskTable tasks={tasks} onOpenTask={openTask} />
+          <TabsContent value="tasks" className="space-y-3 pt-4">
+            {permissions.can_write && project.default_board ? (
+              <div className="flex justify-end">
+                <Button variant="secondary" size="sm" onClick={() => openCreateTask({})}>
+                  <Plus aria-hidden /> Neue Aufgabe
+                </Button>
+              </div>
+            ) : null}
+            <TaskTable
+              tasks={tasks}
+              onOpenTask={openTask}
+              onCreate={
+                permissions.can_write && project.default_board
+                  ? () => openCreateTask({})
+                  : undefined
+              }
+            />
           </TabsContent>
 
           <TabsContent value="billing" className="space-y-4 pt-4">
@@ -233,10 +269,28 @@ export default function ProjectDetailPage() {
 
           <TabsContent value="planning" className="space-y-4 pt-4">
             <TaskTimeline tasks={tasks} onOpenTask={openTask} />
-            <PlanningTab project={project} sprints={sprints} />
+            <ProjectPlanningTab
+              project={project}
+              sprints={sprints}
+              tasks={tasks}
+              canEdit={permissions.can_write}
+              onOpenTask={openTask}
+              onCreateTask={openCreateTask}
+            />
           </TabsContent>
         </Tabs>
       </div>
+      <ProjectFormDialog open={editOpen} onOpenChange={setEditOpen} project={project} />
+      {project.default_board ? (
+        <CreateTaskDialog
+          open={createTaskOpen}
+          onOpenChange={setCreateTaskOpen}
+          projectId={project.id}
+          boardId={project.default_board}
+          defaultSprint={taskDefaults.sprint ?? null}
+          defaultPhase={taskDefaults.phase ?? null}
+        />
+      ) : null}
       <DeleteConfirmationDialog
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
@@ -374,10 +428,22 @@ function OverviewTab({
               </div>
             </Link>
             <dl className="grid grid-cols-2 gap-3 text-[length:var(--text-sm)]">
-              <Detail label="Abrechnungsmodell" value={BILLING_LABELS[project.billing_model]} />
+              <Detail
+                label="Abrechnungsmodell"
+                value={BILLING_MODEL_LABELS[project.billing_model]}
+              />
               <Detail label="Projektleitung" value={project.lead?.full_name ?? '—'} />
               <Detail label="Start" value={dateLabel(project.start_date)} />
               <Detail label="Zieldatum" value={dateLabel(project.target_date)} />
+              <Detail
+                label="Stundensatz"
+                value={
+                  project.default_hourly_rate
+                    ? formatMoney(project.default_hourly_rate)
+                    : 'Kunden-/Workspace-Standard'
+                }
+              />
+              <Detail label="Fortschritt" value={`${project.progress} %`} />
             </dl>
             {project.description ? (
               <p className="text-[length:var(--text-sm)] whitespace-pre-wrap text-[var(--color-ink-muted)]">
@@ -413,9 +479,30 @@ function OverviewTab({
   );
 }
 
-function TaskTable({ tasks, onOpenTask }: { tasks: Task[]; onOpenTask: (id: string) => void }) {
+function TaskTable({
+  tasks,
+  onOpenTask,
+  onCreate,
+}: {
+  tasks: Task[];
+  onOpenTask: (id: string) => void;
+  onCreate?: () => void;
+}) {
   if (tasks.length === 0) {
-    return <EmptyState icon={<ListChecks className="size-8" />} title="Noch keine Aufgaben" />;
+    return (
+      <EmptyState
+        icon={<ListChecks className="size-8" />}
+        title="Noch keine Aufgaben"
+        description="Aufgaben werden automatisch diesem Projekt und Kunden zugeordnet."
+        action={
+          onCreate ? (
+            <Button variant="primary" size="sm" onClick={onCreate}>
+              <Plus aria-hidden /> Erste Aufgabe anlegen
+            </Button>
+          ) : undefined
+        }
+      />
+    );
   }
   return (
     <Panel>
@@ -591,104 +678,6 @@ function BillingTab({
         )}
       </Panel>
     </>
-  );
-}
-
-function PlanningTab({ project, sprints }: { project: Project; sprints: Sprint[] }) {
-  return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <Panel>
-        <PanelHeader>
-          <PanelTitle>Phasen</PanelTitle>
-        </PanelHeader>
-        {project.phases.length === 0 ? (
-          <PanelBody>
-            <EmptyState icon={<CalendarRange className="size-7" />} title="Noch keine Phasen" />
-          </PanelBody>
-        ) : (
-          <DataTable>
-            <thead>
-              <tr>
-                <Th>Phase</Th>
-                <Th>Status</Th>
-                <Th>Zeitraum</Th>
-                <Th className="text-right">Geplant</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {project.phases.map((phase) => (
-                <tr key={phase.id} className="last:[&>td]:border-b-0">
-                  <Td className="font-medium">{phase.name}</Td>
-                  <Td>
-                    <StatusTint
-                      tone={
-                        phase.status === 'completed'
-                          ? 'done'
-                          : phase.status === 'active'
-                            ? 'progress'
-                            : 'hold'
-                      }
-                    >
-                      {phase.status === 'completed'
-                        ? 'Abgeschlossen'
-                        : phase.status === 'active'
-                          ? 'Aktiv'
-                          : 'Geplant'}
-                    </StatusTint>
-                  </Td>
-                  <Td>
-                    {dateLabel(phase.start_date)} – {dateLabel(phase.end_date)}
-                  </Td>
-                  <Td className="tabular text-right">{formatHours(phase.planned_hours)}</Td>
-                </tr>
-              ))}
-            </tbody>
-          </DataTable>
-        )}
-      </Panel>
-      <Panel>
-        <PanelHeader>
-          <PanelTitle>Sprints & Details</PanelTitle>
-        </PanelHeader>
-        <PanelBody className="space-y-4">
-          {sprints.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {sprints.map((sprint) => (
-                <StatusTint
-                  key={sprint.id}
-                  tone={
-                    sprint.status === 'active'
-                      ? 'progress'
-                      : sprint.status === 'completed'
-                        ? 'done'
-                        : 'neutral'
-                  }
-                >
-                  {sprint.name}
-                </StatusTint>
-              ))}
-            </div>
-          ) : (
-            <p className="text-[length:var(--text-sm)] text-[var(--color-ink-subtle)]">
-              Keine Sprints angelegt.
-            </p>
-          )}
-          <dl className="grid grid-cols-2 gap-3 text-[length:var(--text-sm)]">
-            <Detail label="Fortschritt" value={`${project.progress} %`} />
-            <Detail
-              label="Stundensatz"
-              value={
-                project.default_hourly_rate
-                  ? formatMoney(project.default_hourly_rate)
-                  : 'Kunden-/Workspace-Standard'
-              }
-            />
-            <Detail label="Start" value={dateLabel(project.start_date)} />
-            <Detail label="Zieldatum" value={dateLabel(project.target_date)} />
-          </dl>
-        </PanelBody>
-      </Panel>
-    </div>
   );
 }
 

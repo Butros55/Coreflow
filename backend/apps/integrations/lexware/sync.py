@@ -22,6 +22,7 @@ from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
+from django.db.models import Q
 
 from apps.core.logging import get_logger
 from apps.core.money import money
@@ -172,6 +173,7 @@ class LexwareImport:
             return "linked"
 
         billing = _first(contact.get("addresses", {}).get("billing"))
+        shipping = _first(contact.get("addresses", {}).get("shipping"))
         company = contact.get("company") or {}
         customer_number = str((contact.get("roles", {}).get("customer") or {}).get("number") or "")
         # Never collide with the local K-… numbering; on clash keep it blank.
@@ -196,6 +198,10 @@ class LexwareImport:
                 billing_zip=str(billing.get("zip") or ""),
                 billing_city=str(billing.get("city") or ""),
                 billing_country_code=str(billing.get("countryCode") or "DE")[:2],
+                shipping_street=str(shipping.get("street") or ""),
+                shipping_zip=str(shipping.get("zip") or ""),
+                shipping_city=str(shipping.get("city") or ""),
+                shipping_country_code=str(shipping.get("countryCode") or "")[:2],
                 tax_number=str(company.get("taxNumber") or ""),
                 vat_id=str(company.get("vatRegistrationId") or ""),
                 notes=str(contact.get("note") or ""),
@@ -212,17 +218,41 @@ class LexwareImport:
         if client is None:
             return
         company = contact.get("company") or {}
+        billing = _first(contact.get("addresses", {}).get("billing"))
+        shipping = _first(contact.get("addresses", {}).get("shipping"))
         updates: list[str] = []
         fillable = {
             "tax_number": str(company.get("taxNumber") or ""),
             "vat_id": str(company.get("vatRegistrationId") or ""),
             "email": _first_of_any(contact.get("emailAddresses")),
             "phone": _first_of_any(contact.get("phoneNumbers")),
+            "billing_street": str(billing.get("street") or ""),
+            "billing_zip": str(billing.get("zip") or ""),
+            "billing_city": str(billing.get("city") or ""),
+            "shipping_street": str(shipping.get("street") or ""),
+            "shipping_zip": str(shipping.get("zip") or ""),
+            "shipping_city": str(shipping.get("city") or ""),
+            "shipping_country_code": str(shipping.get("countryCode") or "")[:2],
+            "notes": str(contact.get("note") or ""),
         }
         for field, value in fillable.items():
             if value and not getattr(client, field):
                 setattr(client, field, value)
                 updates.append(field)
+
+        # The Lexware customer number fills an empty local one — with the same
+        # collision guard as on create, since K-… numbering may have claimed it.
+        customer_number = str((contact.get("roles", {}).get("customer") or {}).get("number") or "")
+        if (
+            customer_number
+            and not client.client_number
+            and not Client.objects.filter(workspace=self.workspace, client_number=customer_number)
+            .exclude(pk=client.pk)
+            .exists()
+        ):
+            client.client_number = customer_number
+            updates.append("client_number")
+
         if updates:
             client.save(update_fields=[*updates, "updated_at"])
         if not client.contacts.exists():
@@ -304,9 +334,60 @@ class LexwareImport:
                 workspace_id=str(self.workspace.pk),
                 entries=entries_matched,
             )
+        try:
+            self._derive_client_master_from_invoices()
+        except Exception as exc:
+            logger.warning("lexware_client_master_derivation_failed", error=str(exc))
         job.save()
         job.mark_finished(SyncStatus.SUCCESS if job.records_failed == 0 else SyncStatus.PARTIAL)
         return job
+
+    def _derive_client_master_from_invoices(self) -> int:
+        """Fill Zahlungsziel + „Kunde seit" from Lexware-linked invoices.
+
+        The contacts API exposes neither payment terms nor a created date
+        (lexware.md §4.2), so the vouchers are the only source: customer_since
+        = date of the earliest invoice, payment_term_days = the most recent
+        invoice's term. Empty local fields only — Coreflow-owned values win.
+        """
+        linked_ids = ExternalObjectLink.objects.filter(
+            workspace=self.workspace, provider=Provider.LEXWARE, resource_type="invoice"
+        ).values_list("local_object_id", flat=True)
+        invoices = (
+            Invoice.objects.filter(workspace=self.workspace, pk__in=linked_ids)
+            .exclude(status=InvoiceStatus.VOIDED)
+            .exclude(invoice_date=None)
+            .order_by("invoice_date")
+            .only("client", "invoice_date", "payment_term_days")
+        )
+        earliest_date: dict[Any, Any] = {}
+        latest_term: dict[Any, int | None] = {}
+        for invoice in invoices:
+            earliest_date.setdefault(invoice.client_id, invoice.invoice_date)
+            latest_term[invoice.client_id] = invoice.payment_term_days
+
+        updated = 0
+        clients = Client.objects.filter(
+            workspace=self.workspace, pk__in=earliest_date.keys()
+        ).filter(Q(customer_since=None) | Q(payment_term_days=None))
+        for client in clients:
+            updates: list[str] = []
+            if client.customer_since is None:
+                client.customer_since = earliest_date[client.pk]
+                updates.append("customer_since")
+            if client.payment_term_days is None and latest_term.get(client.pk):
+                client.payment_term_days = latest_term[client.pk]
+                updates.append("payment_term_days")
+            if updates:
+                client.save(update_fields=[*updates, "updated_at"])
+                updated += 1
+        if updated:
+            logger.info(
+                "lexware_client_master_derived",
+                workspace_id=str(self.workspace.pk),
+                clients=updated,
+            )
+        return updated
 
     def _match_existing(self, link: ExternalObjectLink) -> int:
         """Retrofit time-entry matches onto an already-mirrored invoice."""

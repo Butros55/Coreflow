@@ -6,19 +6,16 @@ import * as React from 'react';
 import { toast } from 'sonner';
 
 import { PageHeader } from '@/components/layout/app-shell';
+import { ProjectFormDialog } from '@/components/projects/project-form-dialog';
 import { Button } from '@/components/ui/button';
 import { DeleteConfirmationDialog } from '@/components/ui/delete-confirmation-dialog';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { ClickableRow, DataTable, GroupSection, Td, Th } from '@/components/ui/group-bar';
-import { Input, Label } from '@/components/ui/input';
+import { Input } from '@/components/ui/input';
 import { EmptyState } from '@/components/ui/panel';
-import { Select } from '@/components/ui/select';
 import { PriorityPill } from '@/components/ui/status-pill';
-import { useClients } from '@/lib/api/crm';
 import {
   PRIORITY_LABELS,
   PROJECT_STATUS_LABELS,
-  useCreateProject,
   useDeleteProject,
   useProjects,
   type Project,
@@ -134,7 +131,7 @@ export default function ProjectsPage() {
         )}
       </div>
 
-      <CreateProjectDialog open={createOpen} onOpenChange={setCreateOpen} />
+      <ProjectFormDialog open={createOpen} onOpenChange={setCreateOpen} />
       <DeleteConfirmationDialog
         open={Boolean(projectToDelete)}
         onOpenChange={(open) => !open && setProjectToDelete(null)}
@@ -209,89 +206,5 @@ function ProjectRow({
         </Td>
       ) : null}
     </ClickableRow>
-  );
-}
-
-function CreateProjectDialog({
-  open,
-  onOpenChange,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
-  const router = useRouter();
-  const createProject = useCreateProject();
-  const { data: clientsData } = useClients({ archived: false });
-  const clients = clientsData?.results ?? [];
-  const [name, setName] = React.useState('');
-  const [clientId, setClientId] = React.useState('');
-
-  const submit = (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!name.trim() || !clientId) return;
-    createProject.mutate(
-      { name: name.trim(), client: clientId },
-      {
-        onSuccess: (project) => {
-          toast.success(`Projekt „${project.name}“ angelegt.`);
-          onOpenChange(false);
-          setName('');
-          router.push(`/projects/${project.id}`);
-        },
-        onError: (error) => toast.error(error.message),
-      },
-    );
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        title="Neues Projekt"
-        description="Ein Hauptboard wird automatisch mit angelegt."
-      >
-        <form onSubmit={submit} className="space-y-3">
-          <div>
-            <Label htmlFor="project-name" required>
-              Projektname
-            </Label>
-            <Input
-              id="project-name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              autoFocus
-              required
-            />
-          </div>
-          <div>
-            <Label htmlFor="project-client" required>
-              Kunde
-            </Label>
-            <Select
-              id="project-client"
-              value={clientId}
-              onChange={(event) => setClientId(event.target.value)}
-              required
-            >
-              <option value="" disabled>
-                Kunde wählen…
-              </option>
-              {clients.map((client) => (
-                <option key={client.id} value={client.id}>
-                  {client.name}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-              Abbrechen
-            </Button>
-            <Button type="submit" variant="primary" loading={createProject.isPending}>
-              Anlegen
-            </Button>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
   );
 }

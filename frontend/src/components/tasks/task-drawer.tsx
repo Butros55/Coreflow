@@ -20,6 +20,7 @@ import {
   useCreateTask,
   useDeleteComment,
   useDeleteTask,
+  useProject,
   useSprints,
   useTask,
   useTaskComments,
@@ -186,6 +187,12 @@ export function TaskDrawer({
                 value={task.sprint}
                 disabled={!canEdit}
                 onChange={(sprint) => patch({ sprint })}
+              />
+              <PhaseField
+                projectId={task.project}
+                value={task.phase}
+                disabled={!canEdit}
+                onChange={(phase) => patch({ phase })}
               />
               <div className="col-span-2">
                 <AssigneeField
@@ -532,6 +539,42 @@ function SprintField({
             {sprint.name}
           </option>
         ))}
+      </Select>
+    </div>
+  );
+}
+
+function PhaseField({
+  projectId,
+  value,
+  onChange,
+  disabled,
+}: {
+  projectId: string;
+  value: string | null;
+  onChange: (phase: string | null) => void;
+  disabled: boolean;
+}) {
+  const { data: project } = useProject(projectId);
+  const phases = project?.phases ?? [];
+  if (phases.length === 0) return null;
+  return (
+    <div>
+      <Label htmlFor="drawer-phase">Phase</Label>
+      <Select
+        id="drawer-phase"
+        value={value ?? ''}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value || null)}
+      >
+        <option value="">Keine Phase</option>
+        {[...phases]
+          .sort((a, b) => a.order - b.order)
+          .map((phase) => (
+            <option key={phase.id} value={phase.id}>
+              {phase.name}
+            </option>
+          ))}
       </Select>
     </div>
   );

@@ -33,12 +33,37 @@ export const PROJECT_STATUS_LABELS: Record<ProjectStatus, string> = {
   cancelled: 'Abgebrochen',
 };
 
+export type BillingModel = 'hourly' | 'fixed' | 'retainer' | 'non_billable';
+
+export const BILLING_MODEL_LABELS: Record<BillingModel, string> = {
+  hourly: 'Nach Aufwand',
+  fixed: 'Festpreis',
+  retainer: 'Retainer',
+  non_billable: 'Nicht abrechenbar',
+};
+
+export type SprintStatus = 'planned' | 'active' | 'completed';
+
+export const SPRINT_STATUS_LABELS: Record<SprintStatus, string> = {
+  planned: 'Geplant',
+  active: 'Aktiv',
+  completed: 'Abgeschlossen',
+};
+
+export type PhaseStatus = 'planned' | 'active' | 'completed';
+
+export const PHASE_STATUS_LABELS: Record<PhaseStatus, string> = {
+  planned: 'Geplant',
+  active: 'Aktiv',
+  completed: 'Abgeschlossen',
+};
+
 export interface ProjectPhase {
   id: string;
   project: string;
   name: string;
   order: number;
-  status: 'planned' | 'active' | 'completed';
+  status: PhaseStatus;
   planned_hours: string | null;
   start_date: string | null;
   end_date: string | null;
@@ -97,7 +122,7 @@ export interface Project {
   default_hourly_rate: string | null;
   budget_hours: string | null;
   budget_amount: string | null;
-  billing_model: 'hourly' | 'fixed' | 'retainer' | 'non_billable';
+  billing_model: BillingModel;
   progress: number;
   tags: string[];
   color: string;
@@ -127,7 +152,7 @@ export interface Sprint {
   goal: string;
   start_date: string | null;
   end_date: string | null;
-  status: 'planned' | 'active' | 'completed';
+  status: SprintStatus;
   capacity_hours: string | null;
 }
 
@@ -204,13 +229,31 @@ export function useProject(id: string | null) {
   });
 }
 
+/** Writable project fields; `lead_id` is the writable form of `lead`. */
+export type ProjectPayload = Partial<Omit<Project, 'lead' | 'phases' | 'stats'>> & {
+  lead_id?: string | null;
+};
+
 export function useCreateProject() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: Partial<Project>) => api.post<Project>('/projects/', payload),
+    mutationFn: (payload: ProjectPayload) => api.post<Project>('/projects/', payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
       queryClient.invalidateQueries({ queryKey: ['boards'] });
+    },
+  });
+}
+
+export function useUpdateProject() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...patch }: ProjectPayload & { id: string }) =>
+      api.patch<Project>(`/projects/${id}/`, patch),
+    onSuccess: (project) => {
+      queryClient.setQueryData(['project', project.id], project);
+      queryClient.invalidateQueries({ queryKey: ['project', project.id] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
     },
   });
 }
@@ -250,6 +293,72 @@ export function useSprints(projectId: string | null) {
     queryKey: ['sprints', projectId],
     queryFn: () => api.get<Paginated<Sprint>>('/sprints/', { query: { project: projectId } }),
     enabled: Boolean(projectId),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Sprints & phases (CRUD)
+// ---------------------------------------------------------------------------
+
+export type SprintPayload = Partial<Omit<Sprint, 'id'>> & { project: string };
+export type PhasePayload = Partial<Omit<ProjectPhase, 'id'>> & { project: string };
+
+function invalidatePlanning(queryClient: ReturnType<typeof useQueryClient>) {
+  queryClient.invalidateQueries({ queryKey: ['sprints'] });
+  // Phases ride embedded in the project payload; tasks carry sprint/phase names.
+  queryClient.invalidateQueries({ queryKey: ['project'] });
+  queryClient.invalidateQueries({ queryKey: ['projects'] });
+  queryClient.invalidateQueries({ queryKey: ['tasks'] });
+  queryClient.invalidateQueries({ queryKey: ['task'] });
+}
+
+export function useCreateSprint() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: SprintPayload) => api.post<Sprint>('/sprints/', payload),
+    onSuccess: () => invalidatePlanning(queryClient),
+  });
+}
+
+export function useUpdateSprint() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...patch }: Partial<Sprint> & { id: string }) =>
+      api.patch<Sprint>(`/sprints/${id}/`, patch),
+    onSuccess: () => invalidatePlanning(queryClient),
+  });
+}
+
+export function useDeleteSprint() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete<void>(`/sprints/${id}/`),
+    onSuccess: () => invalidatePlanning(queryClient),
+  });
+}
+
+export function useCreatePhase() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: PhasePayload) => api.post<ProjectPhase>('/project-phases/', payload),
+    onSuccess: () => invalidatePlanning(queryClient),
+  });
+}
+
+export function useUpdatePhase() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...patch }: Partial<ProjectPhase> & { id: string }) =>
+      api.patch<ProjectPhase>(`/project-phases/${id}/`, patch),
+    onSuccess: () => invalidatePlanning(queryClient),
+  });
+}
+
+export function useDeletePhase() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete<void>(`/project-phases/${id}/`),
+    onSuccess: () => invalidatePlanning(queryClient),
   });
 }
 

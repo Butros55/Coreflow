@@ -644,6 +644,111 @@ class TestContactMasterData:
         assert client.email == "lokal@firma.de"  # local value untouched
         assert client.contacts.count() == 1
 
+    @respx.mock
+    def test_shipping_address_is_imported(self, workspace: Workspace) -> None:
+        enriched = contact(
+            "lex-contact-1",
+            addresses={
+                "billing": [
+                    {
+                        "street": "Hafenstraße 5",
+                        "zip": "20457",
+                        "city": "Hamburg",
+                        "countryCode": "DE",
+                    }
+                ],
+                "shipping": [
+                    {"street": "Lagerweg 9", "zip": "21079", "city": "Harburg", "countryCode": "DE"}
+                ],
+            },
+        )
+        respx.get(f"{LEXWARE}/v1/contacts").mock(
+            return_value=httpx.Response(200, json=spring_page([enriched]))
+        )
+        with LexwareClient() as conn:
+            LexwareImport(workspace).import_contacts(conn)
+
+        client = Client.objects.get(workspace=workspace, name="Import AG")
+        assert client.shipping_street == "Lagerweg 9"
+        assert client.shipping_zip == "21079"
+        assert client.shipping_city == "Harburg"
+        assert client.shipping_country_code == "DE"
+
+    @respx.mock
+    def test_rerun_backfills_addresses_and_client_number(self, workspace: Workspace) -> None:
+        """A name-linked client without master data gets address + number filled."""
+        existing = Client.objects.create(workspace=workspace, name="Import AG")
+        respx.get(f"{LEXWARE}/v1/contacts").mock(
+            return_value=httpx.Response(200, json=spring_page([contact("lex-contact-1")]))
+        )
+        with LexwareClient() as conn:
+            LexwareImport(workspace).import_contacts(conn)  # links by name
+            LexwareImport(workspace).import_contacts(conn)  # backfill pass
+
+        existing.refresh_from_db()
+        assert existing.billing_street == "Hafenstraße 5"
+        assert existing.billing_zip == "20457"
+        assert existing.billing_city == "Hamburg"
+        assert existing.client_number == "10001"
+
+    @respx.mock
+    def test_backfill_never_steals_a_taken_client_number(self, workspace: Workspace) -> None:
+        Client.objects.create(workspace=workspace, name="Andere GmbH", client_number="10001")
+        existing = Client.objects.create(workspace=workspace, name="Import AG")
+        respx.get(f"{LEXWARE}/v1/contacts").mock(
+            return_value=httpx.Response(200, json=spring_page([contact("lex-contact-1")]))
+        )
+        with LexwareClient() as conn:
+            LexwareImport(workspace).import_contacts(conn)
+            LexwareImport(workspace).import_contacts(conn)
+
+        existing.refresh_from_db()
+        assert existing.client_number == ""  # collision → stays blank
+
+
+class TestClientMasterFromInvoices:
+    """Zahlungsziel and „Kunde seit" come from the vouchers — the contacts API
+    has neither (lexware.md §4.2)."""
+
+    @respx.mock
+    def test_payment_term_and_customer_since_derived_from_invoices(
+        self, workspace: Workspace
+    ) -> None:
+        first = remote_invoice(
+            "lex-inv-1",
+            voucherNumber="RE-0001",
+            voucherDate="2025-11-03T00:00:00.000+01:00",
+            paymentConditions={"paymentTermDuration": 30},
+        )
+        latest = remote_invoice("lex-inv-2")  # 2026-05-12, 14 Tage
+        mock_contact_and_lists([first, latest])
+        with LexwareClient() as conn:
+            importer = LexwareImport(workspace)
+            importer.import_contacts(conn)
+            importer.import_invoices(conn)
+
+        client = Client.objects.get(workspace=workspace, name="Import AG")
+        assert client.customer_since == dt.date(2025, 11, 3)  # earliest voucher
+        assert client.payment_term_days == 14  # most recent voucher's term
+
+    @respx.mock
+    def test_locally_maintained_master_data_survives_derivation(self, workspace: Workspace) -> None:
+        mock_contact_and_lists([remote_invoice("lex-inv-1")])
+        with LexwareClient() as conn:
+            importer = LexwareImport(workspace)
+            importer.import_contacts(conn)
+        client = Client.objects.get(workspace=workspace, name="Import AG")
+        client.customer_since = dt.date(2020, 1, 1)
+        client.payment_term_days = 7
+        client.save(update_fields=["customer_since", "payment_term_days"])
+
+        with LexwareClient() as conn:
+            importer.import_invoices(conn)
+
+        client.refresh_from_db()
+        assert client.customer_since == dt.date(2020, 1, 1)
+        assert client.payment_term_days == 7
+
 
 class TestImportTrigger:
     @respx.mock

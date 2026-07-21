@@ -4,8 +4,8 @@ import { ArrowLeft, CalendarRange, Plus, Search, SquareKanban, Table2 } from 'lu
 import Link from 'next/link';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import * as React from 'react';
-import { toast } from 'sonner';
 
+import { CreateTaskDialog } from '@/components/tasks/create-task-dialog';
 import { KanbanBoard } from '@/components/tasks/kanban';
 import { STATUS_TONES, StatusSelect } from '@/components/tasks/status-select';
 import { TaskDrawer } from '@/components/tasks/task-drawer';
@@ -13,21 +13,17 @@ import { TaskTimeline } from '@/components/tasks/task-timeline';
 import { AvatarStack } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { DetailErrorState } from '@/components/ui/detail-error';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { ClickableRow, DataTable, GroupSection, Td, Th } from '@/components/ui/group-bar';
-import { Input, Label } from '@/components/ui/input';
-import { Select } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
 import { PriorityPill } from '@/components/ui/status-pill';
 import {
   PRIORITY_LABELS,
   TASK_STATUS_LABELS,
   TASK_STATUS_ORDER,
   useBoard,
-  useCreateTask,
   useTasks,
   type Task,
   type TaskListParams,
-  type TaskStatus,
 } from '@/lib/api/projects';
 import { usePermissions } from '@/lib/session';
 import { formatHours } from '@/lib/utils';
@@ -298,79 +294,5 @@ function TaskTable({ tasks, onOpenTask }: { tasks: Task[]; onOpenTask: (id: stri
         );
       })}
     </>
-  );
-}
-
-function CreateTaskDialog({
-  open,
-  onOpenChange,
-  boardId,
-  projectId,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  boardId: string;
-  projectId: string;
-}) {
-  const createTask = useCreateTask();
-  const [title, setTitle] = React.useState('');
-  const [status, setStatus] = React.useState<TaskStatus>('todo');
-
-  const submit = (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!title.trim()) return;
-    createTask.mutate(
-      { title: title.trim(), status, board: boardId, project: projectId },
-      {
-        onSuccess: () => {
-          onOpenChange(false);
-          setTitle('');
-        },
-        onError: (error) => toast.error(error.message),
-      },
-    );
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent title="Neue Aufgabe">
-        <form onSubmit={submit} className="space-y-3">
-          <div>
-            <Label htmlFor="task-title" required>
-              Titel
-            </Label>
-            <Input
-              id="task-title"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              autoFocus
-              required
-            />
-          </div>
-          <div>
-            <Label htmlFor="task-status">Spalte</Label>
-            <Select
-              id="task-status"
-              value={status}
-              onChange={(event) => setStatus(event.target.value as TaskStatus)}
-            >
-              {TASK_STATUS_ORDER.map((value) => (
-                <option key={value} value={value}>
-                  {TASK_STATUS_LABELS[value]}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-              Abbrechen
-            </Button>
-            <Button type="submit" variant="primary" loading={createTask.isPending}>
-              Anlegen
-            </Button>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
   );
 }

@@ -1,12 +1,13 @@
 'use client';
 
-import { ArrowLeft, Mail, Phone, Plus, Star, Trash2 } from 'lucide-react';
+import { ArrowLeft, Mail, Pencil, Phone, Plus, Star, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import * as React from 'react';
 import { toast } from 'sonner';
 
 import { PageHeader } from '@/components/layout/app-shell';
+import { ClientEditDialog } from '@/components/clients/client-edit-dialog';
 import { DeleteClientDialog } from '@/components/clients/delete-client-dialog';
 import { DetailErrorState } from '@/components/ui/detail-error';
 import { api } from '@/lib/api/client';
@@ -59,6 +60,7 @@ export default function ClientDetailPage() {
   const permissions = usePermissions();
   const router = useRouter();
   const [deleteOpen, setDeleteOpen] = React.useState(false);
+  const [editOpen, setEditOpen] = React.useState(false);
 
   if (isLoading) {
     return (
@@ -90,6 +92,11 @@ export default function ClientDetailPage() {
         actions={
           <div className="flex items-center gap-2">
             <StatusTint tone={statusTone}>{CLIENT_STATUS_LABELS[client.status]}</StatusTint>
+            {permissions.can_write ? (
+              <Button variant="secondary" size="sm" onClick={() => setEditOpen(true)}>
+                <Pencil aria-hidden /> Bearbeiten
+              </Button>
+            ) : null}
             {permissions.can_manage_settings ? (
               <Button
                 variant="ghost"
@@ -146,6 +153,7 @@ export default function ClientDetailPage() {
         onOpenChange={setDeleteOpen}
         onDeleted={() => router.replace('/clients')}
       />
+      <ClientEditDialog client={client} open={editOpen} onOpenChange={setEditOpen} />
     </>
   );
 }

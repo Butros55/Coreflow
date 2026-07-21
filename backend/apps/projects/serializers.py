@@ -6,6 +6,7 @@ from typing import Any
 
 from rest_framework import serializers
 
+from apps.accounts.models import User
 from apps.accounts.serializers import UserSerializer
 from apps.core.api import WorkspaceScopedSerializer
 from apps.projects.models import (
@@ -38,6 +39,15 @@ class ProjectPhaseSerializer(WorkspaceScopedSerializer):
 
 class ProjectSerializer(WorkspaceScopedSerializer):
     lead = UserSerializer(read_only=True)
+    # Writable counterpart to the nested read-only ``lead`` — the workspace
+    # scoping mixin narrows the queryset to active members.
+    lead_id = serializers.PrimaryKeyRelatedField(
+        source="lead",
+        queryset=User.objects.all(),
+        required=False,
+        allow_null=True,
+        write_only=True,
+    )
     client_name = serializers.CharField(source="client.display_name", read_only=True)
     phases = ProjectPhaseSerializer(many=True, read_only=True)
     stats = serializers.SerializerMethodField()
@@ -56,6 +66,7 @@ class ProjectSerializer(WorkspaceScopedSerializer):
             "start_date",
             "target_date",
             "lead",
+            "lead_id",
             "default_hourly_rate",
             "budget_hours",
             "budget_amount",
