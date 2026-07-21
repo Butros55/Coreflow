@@ -20,8 +20,8 @@ export const Select = React.forwardRef<
         ref={ref}
         aria-invalid={invalid || undefined}
         className={cn(
-          'h-8 w-full appearance-none rounded-[var(--radius-sm)] border bg-[var(--color-panel-sunken)] pr-8 pl-2.5 text-[length:var(--text-sm)] text-[var(--color-ink)]',
-          'transition-colors focus:border-[var(--color-brand)] focus:outline-none',
+          'h-8 w-full appearance-none rounded-[var(--radius-md)] border bg-[var(--color-panel-sunken)] pr-8 pl-3 text-[length:var(--text-sm)] text-[var(--color-ink)]',
+          'transition-[border-color,box-shadow,background-color] focus:border-[var(--color-brand)] focus:bg-[var(--color-panel)] focus:shadow-[0_0_0_3px_var(--color-brand-ring)] focus:outline-none',
           'disabled:cursor-not-allowed disabled:opacity-50',
           invalid
             ? 'border-[var(--color-danger)]'

@@ -116,7 +116,7 @@ export default function ClientDetailPage() {
         }
       >
         <Tabs defaultValue="overview">
-          <TabsList className="border-b-0 pt-2">
+          <TabsList className="mt-3">
             <TabsTrigger value="overview">Übersicht</TabsTrigger>
             <TabsTrigger value="projects">Projekte</TabsTrigger>
             <TabsTrigger value="contacts">Kontakte</TabsTrigger>
@@ -125,7 +125,7 @@ export default function ClientDetailPage() {
             <TabsTrigger value="activity">Aktivität</TabsTrigger>
           </TabsList>
 
-          <div className="-mx-5 border-t border-[var(--color-line)] bg-[var(--color-canvas)] px-5 pt-5 pb-5">
+          <div className="pt-4 pb-5">
             <TabsContent value="overview">
               <OverviewTab client={client} />
             </TabsContent>

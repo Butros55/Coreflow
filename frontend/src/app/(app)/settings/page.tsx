@@ -17,7 +17,7 @@ export default function SettingsPage() {
     <>
       <PageHeader title="Einstellungen">
         <Tabs defaultValue="company">
-          <TabsList className="border-b-0 pt-2">
+          <TabsList className="mt-3">
             <TabsTrigger value="company">Unternehmen</TabsTrigger>
             <TabsTrigger value="service-types">Leistungsarten</TabsTrigger>
             <TabsTrigger value="tax">Steuerprofil</TabsTrigger>
@@ -30,7 +30,7 @@ export default function SettingsPage() {
             ) : null}
           </TabsList>
 
-          <div className="-mx-5 border-t border-[var(--color-line)] bg-[var(--color-canvas)] px-5 pt-5 pb-5">
+          <div className="pt-4 pb-5">
             <TabsContent value="company">
               <CompanyTab />
             </TabsContent>

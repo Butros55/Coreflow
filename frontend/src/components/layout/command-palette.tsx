@@ -55,12 +55,12 @@ export function CommandPalette({
       <button
         type="button"
         tabIndex={-1}
-        className="fixed inset-0 cursor-default bg-black/60 backdrop-blur-sm"
+        className="fixed inset-0 cursor-default bg-black/30 backdrop-blur-sm"
         onClick={() => onOpenChange(false)}
         aria-label="Befehlspalette schließen"
       />
       <div className="fixed top-[20%] left-1/2 w-full max-w-lg -translate-x-1/2 px-4">
-        <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-line-strong)] bg-[var(--color-panel)] shadow-[var(--shadow-popover)]">
+        <div className="overflow-hidden rounded-[var(--radius-xl)] border border-[var(--color-line-subtle)] bg-[var(--color-panel)] shadow-[var(--shadow-popover)]">
           <Command.Input
             placeholder="Springe zu…"
             className="h-11 w-full border-b border-[var(--color-line)] bg-transparent px-4 text-[length:var(--text-base)] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-ink-subtle)]"

@@ -140,24 +140,31 @@ function KanbanColumn({
     disabled: !canEdit,
   });
 
-  const color = `var(--color-status-${STATUS_TONES[status]})`;
+  const tone = STATUS_TONES[status];
 
   return (
-    <div className="flex w-72 shrink-0 flex-col">
-      {/* Saturated column header, as in the reference. */}
-      <div
-        className="mb-2 flex h-7 items-center justify-center rounded-[var(--radius-sm)] text-[length:var(--text-xs)] font-semibold text-[#0b1220]"
-        style={{ backgroundColor: color }}
-      >
-        {TASK_STATUS_LABELS[status]}/{tasks.length}
+    <div
+      className={cn(
+        'flex w-72 shrink-0 flex-col rounded-[var(--radius-xl)] p-2 transition-shadow',
+        isOver && 'shadow-[0_0_0_2px_var(--color-brand-ring)]',
+      )}
+      style={{ backgroundColor: `var(--color-status-${tone}-soft)` }}
+    >
+      {/* Pastel column well with a dot + label header, as in the reference. */}
+      <div className="mb-2 flex h-7 items-center gap-2 px-1.5">
+        <span
+          className="size-2 shrink-0 rounded-full"
+          style={{ backgroundColor: `var(--color-status-${tone})` }}
+          aria-hidden
+        />
+        <span className="text-[length:var(--text-sm)] font-semibold">
+          {TASK_STATUS_LABELS[status]}
+        </span>
+        <span className="tabular text-[length:var(--text-xs)] font-medium text-[var(--color-ink-subtle)]">
+          {tasks.length}
+        </span>
       </div>
-      <div
-        ref={setNodeRef}
-        className={cn(
-          'flex min-h-32 flex-1 flex-col gap-2 rounded-[var(--radius-md)] p-1 transition-colors',
-          isOver && 'bg-[var(--color-brand-subtle)]',
-        )}
-      >
+      <div ref={setNodeRef} className="flex min-h-32 flex-1 flex-col gap-2">
         {tasks.map((task) => (
           <DraggableCard
             key={task.id}
@@ -219,10 +226,10 @@ export function KanbanCard({ task, overlay = false }: { task: Task; overlay?: bo
   return (
     <div
       className={cn(
-        'cursor-pointer rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-panel)] p-3 transition-colors',
+        'cursor-pointer rounded-[var(--radius-lg)] bg-[var(--color-panel)] p-3 shadow-[var(--shadow-panel)] transition-shadow',
         overlay
           ? 'shadow-[var(--shadow-popover)] ring-1 ring-[var(--color-brand)]'
-          : 'hover:border-[var(--color-line-strong)]',
+          : 'hover:shadow-[var(--shadow-popover)]',
       )}
     >
       <div className="mb-2 text-[length:var(--text-sm)] leading-snug font-medium">{task.title}</div>

@@ -3,91 +3,100 @@
 /* ---------------------------------------------------------------------------
  * Coreflow design tokens
  *
- * Derived from the reference screenshots: a very dark navy/violet base, panels
- * that sit a step lighter, hairline borders rather than heavy strokes, and
- * saturated status pills that carry the meaning. Dense but readable — this is a
- * desktop business tool, not a marketing page.
+ * Light-first, soft SaaS look (per the reference shots): a gently lavender
+ * canvas, floating white cards with large radii and layered soft shadows,
+ * a violet brand with a subtle gradient, and pastel status tints where the
+ * old theme used saturated fills. Dense but friendly.
  *
- * Everything is a token. No component hardcodes a hex value, so re-theming is a
- * change in one file.
+ * Everything is a token. No component hardcodes a hex value, so re-theming is
+ * a change in one file. The dark theme below overrides the same variables.
+ *
+ * `static` matters: several components resolve tokens at runtime
+ * (`var(--color-status-${tone}-soft)`), which Tailwind's content scan cannot
+ * see — without `static` those variables would be tree-shaken away.
  * ------------------------------------------------------------------------- */
 
-@theme {
-  /* --- Surfaces (dark, the primary theme) --- */
-  --color-canvas: #070b18; /* app background, the darkest layer */
-  --color-surface: #0d1226; /* sidebar, page chrome */
-  --color-panel: #131a33; /* cards, tables, drawers */
-  --color-panel-raised: #1a2242; /* hover / popovers / inputs */
-  --color-panel-sunken: #0a0f21; /* wells, code, empty states */
+@theme static {
+  /* --- Surfaces (light, the primary theme) --- */
+  --color-canvas: #f3f4fb; /* app background, soft lavender-gray */
+  --color-surface: #ffffff; /* sidebar, page chrome */
+  --color-panel: #ffffff; /* cards, tables, drawers */
+  --color-panel-raised: #f4f5fb; /* hover / chips / pressed */
+  --color-panel-sunken: #eef0f8; /* wells, code, empty states */
 
   /* --- Borders: hairlines, deliberately low contrast --- */
-  --color-line: #232c4d;
-  --color-line-strong: #34406b;
-  --color-line-subtle: #1a2140;
+  --color-line: #e8eaf3;
+  --color-line-strong: #d6dae9;
+  --color-line-subtle: #f0f1f8;
 
   /* --- Text --- */
-  --color-ink: #eef1fb; /* primary */
-  --color-ink-muted: #9aa4c7; /* secondary / labels */
-  --color-ink-subtle: #6b769c; /* tertiary / placeholders */
-  --color-ink-inverse: #070b18;
+  --color-ink: #1b1f36; /* primary — deep navy ink */
+  --color-ink-muted: #5c6382; /* secondary / labels */
+  --color-ink-subtle: #939ab5; /* tertiary / placeholders */
+  --color-ink-inverse: #ffffff;
 
-  /* --- Brand --- */
-  --color-brand: #4f7dff;
-  --color-brand-hover: #6b92ff;
-  --color-brand-active: #3d68e6;
-  --color-brand-subtle: #1a2547;
-  --color-brand-ring: #4f7dff66;
+  /* --- Brand: violet-indigo with a soft gradient accent --- */
+  --color-brand: #6c5ce7;
+  --color-brand-hover: #7d6ef2;
+  --color-brand-active: #5a4bd2;
+  --color-brand-subtle: #eeecfd;
+  --color-brand-ring: #6c5ce740;
+  --gradient-brand: linear-gradient(135deg, #6c5ce7 0%, #9d7bf5 100%);
 
   /* --- Status palette ---
-   * Each status has a saturated `-solid` for pills and a low-alpha `-soft`
-   * for row/column tinting. Kept in sync deliberately: the pill and the tint
-   * must read as the same status.
+   * `-solid` carries the hue (dots, bars, charts, pill text), `-soft` is the
+   * pastel tint behind it. Pills are tinted, never fully saturated: the soft
+   * background and the solid text must read as the same status.
    */
-  --color-status-todo: #3f8cff;
-  --color-status-todo-soft: #3f8cff24;
-  --color-status-progress: #f5a524;
-  --color-status-progress-soft: #f5a52424;
-  --color-status-review: #a855f7;
+  --color-status-todo: #3e6de0;
+  --color-status-todo-soft: #3e6de01a;
+  --color-status-progress: #d98324;
+  --color-status-progress-soft: #f5a5242b;
+  --color-status-review: #8e42e6;
   --color-status-review-soft: #a855f724;
-  --color-status-done: #22c55e;
+  --color-status-done: #189a4e;
   --color-status-done-soft: #22c55e24;
-  --color-status-stuck: #ef4444;
-  --color-status-stuck-soft: #ef444424;
+  --color-status-stuck: #dc3d3d;
+  --color-status-stuck-soft: #ef444420;
   --color-status-hold: #64748b;
-  --color-status-hold-soft: #64748b24;
+  --color-status-hold-soft: #64748b1f;
 
   /* --- Priority --- */
-  --color-priority-low: #38bdf8;
-  --color-priority-medium: #a78bfa;
-  --color-priority-high: #fb7185;
-  --color-priority-urgent: #dc2626;
+  --color-priority-low: #0f97c7;
+  --color-priority-low-soft: #38bdf824;
+  --color-priority-medium: #7c5ce0;
+  --color-priority-medium-soft: #a78bfa26;
+  --color-priority-high: #e2496b;
+  --color-priority-high-soft: #fb718526;
+  --color-priority-urgent: #d92626;
+  --color-priority-urgent-soft: #dc262622;
 
   /* --- Semantic feedback --- */
-  --color-success: #22c55e;
-  --color-success-soft: #22c55e1f;
-  --color-warning: #f5a524;
-  --color-warning-soft: #f5a5241f;
-  --color-danger: #ef4444;
-  --color-danger-soft: #ef44441f;
-  --color-info: #3f8cff;
-  --color-info-soft: #3f8cff1f;
+  --color-success: #189a4e;
+  --color-success-soft: #22c55e1c;
+  --color-warning: #d98324;
+  --color-warning-soft: #f5a52426;
+  --color-danger: #dc3d3d;
+  --color-danger-soft: #ef44441c;
+  --color-info: #3e6de0;
+  --color-info-soft: #3e6de018;
 
   /* --- Group bars (Monday/Plaky-style coloured group headers) --- */
-  --color-group-1: #4f7dff;
-  --color-group-2: #22c55e;
-  --color-group-3: #f5a524;
+  --color-group-1: #6c5ce7;
+  --color-group-2: #10b981;
+  --color-group-3: #f59e0b;
   --color-group-4: #a855f7;
-  --color-group-5: #ef4444;
+  --color-group-5: #f43f5e;
   --color-group-6: #06b6d4;
   --color-group-7: #ec4899;
   --color-group-8: #84cc16;
 
-  /* --- Radii: rounded panels, but not pill-soft --- */
-  --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
+  /* --- Radii: soft and generous, like the reference cards --- */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
 
   /* --- Type: system stack; no webfont round-trip, no CSP exception --- */
   --font-sans:
@@ -109,38 +118,80 @@
   /* --- Layout --- */
   --spacing-sidebar: 15rem;
   --spacing-sidebar-collapsed: 3.5rem;
-  --spacing-topbar: 3.25rem;
+  --spacing-topbar: 3.5rem;
   --spacing-drawer: 30rem;
 
-  --shadow-panel: 0 1px 2px rgb(0 0 0 / 0.4);
-  --shadow-popover: 0 8px 30px rgb(0 0 0 / 0.55);
-  --shadow-drawer: -8px 0 30px rgb(0 0 0 / 0.45);
+  /* Soft, layered, slightly blue-tinted — cards float instead of outline. */
+  --shadow-panel: 0 1px 2px rgb(23 26 74 / 0.04), 0 6px 20px rgb(23 26 74 / 0.05);
+  --shadow-popover: 0 4px 10px rgb(23 26 74 / 0.06), 0 16px 40px rgb(23 26 74 / 0.16);
+  --shadow-drawer: -12px 0 40px rgb(23 26 74 / 0.14);
 }
 
 /* ---------------------------------------------------------------------------
- * Light theme.
+ * Dark theme.
  *
- * The product is dark-first (per the reference designs) but the tokens are
- * indirected so a light theme is a variable swap rather than a rewrite.
- * Applied via <html data-theme="light">.
+ * The original navy world, harmonised with the new violet brand and the softer
+ * geometry. Applied via <html data-theme="dark">; the toggle lives in the
+ * topbar user menu.
  * ------------------------------------------------------------------------- */
-[data-theme='light'] {
-  --color-canvas: #f5f6fa;
-  --color-surface: #ffffff;
-  --color-panel: #ffffff;
-  --color-panel-raised: #f0f2f8;
-  --color-panel-sunken: #eceef5;
+[data-theme='dark'] {
+  --color-canvas: #0a0d1c;
+  --color-surface: #10142a;
+  --color-panel: #151a34;
+  --color-panel-raised: #1d2344;
+  --color-panel-sunken: #0c1022;
 
-  --color-line: #dfe3ee;
-  --color-line-strong: #c3c9dc;
-  --color-line-subtle: #ebedf4;
+  --color-line: #242b4d;
+  --color-line-strong: #35406b;
+  --color-line-subtle: #1b2140;
 
-  --color-ink: #131a33;
-  --color-ink-muted: #5a6484;
-  --color-ink-subtle: #8b93ad;
-  --color-ink-inverse: #ffffff;
+  --color-ink: #eef1fb;
+  --color-ink-muted: #9aa4c7;
+  --color-ink-subtle: #6b769c;
+  --color-ink-inverse: #0a0d1c;
 
-  --color-brand-subtle: #e6ecff;
+  --color-brand: #7d6ef2;
+  --color-brand-hover: #8d80f5;
+  --color-brand-active: #6c5ce7;
+  --color-brand-subtle: #232052;
+  --color-brand-ring: #7d6ef259;
+  --gradient-brand: linear-gradient(135deg, #7d6ef2 0%, #a78bfa 100%);
+
+  /* Brighter status hues: tinted pills need luminous text on dark wells. */
+  --color-status-todo: #6f9bff;
+  --color-status-todo-soft: #3f8cff24;
+  --color-status-progress: #f5a524;
+  --color-status-progress-soft: #f5a52424;
+  --color-status-review: #bf7af7;
+  --color-status-review-soft: #a855f724;
+  --color-status-done: #34d374;
+  --color-status-done-soft: #22c55e24;
+  --color-status-stuck: #f87171;
+  --color-status-stuck-soft: #ef444424;
+  --color-status-hold: #94a3b8;
+  --color-status-hold-soft: #64748b2e;
+
+  --color-priority-low: #38bdf8;
+  --color-priority-low-soft: #38bdf826;
+  --color-priority-medium: #a78bfa;
+  --color-priority-medium-soft: #a78bfa26;
+  --color-priority-high: #fb7185;
+  --color-priority-high-soft: #fb718526;
+  --color-priority-urgent: #f14e4e;
+  --color-priority-urgent-soft: #dc262633;
+
+  --color-success: #34d374;
+  --color-success-soft: #22c55e21;
+  --color-warning: #f5a524;
+  --color-warning-soft: #f5a52421;
+  --color-danger: #f87171;
+  --color-danger-soft: #ef444421;
+  --color-info: #6f9bff;
+  --color-info-soft: #3f8cff21;
+
+  --shadow-panel: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.28);
+  --shadow-popover: 0 8px 30px rgb(0 0 0 / 0.55);
+  --shadow-drawer: -8px 0 30px rgb(0 0 0 / 0.45);
 }
 
 @layer base {
@@ -149,13 +200,13 @@
   }
 
   html {
-    color-scheme: dark;
+    color-scheme: light;
     /* Prevent layout shift when a scrollbar appears/disappears between routes. */
     scrollbar-gutter: stable;
   }
 
-  html[data-theme='light'] {
-    color-scheme: light;
+  html[data-theme='dark'] {
+    color-scheme: dark;
   }
 
   body {
@@ -180,7 +231,7 @@
     color: white;
   }
 
-  /* Scrollbars styled to match the dark chrome rather than the OS default. */
+  /* Scrollbars styled to match the soft chrome rather than the OS default. */
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;
@@ -220,6 +271,11 @@
   }
   .scrollbar-none::-webkit-scrollbar {
     display: none;
+  }
+
+  /* Brand gradient surface (logo tile, primary CTAs, login hero). */
+  .bg-brand-gradient {
+    background-image: var(--gradient-brand);
   }
 }
 

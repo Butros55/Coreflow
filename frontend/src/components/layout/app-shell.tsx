@@ -79,7 +79,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Consistent page header: title, optional description, right-aligned actions. */
+/**
+ * Consistent page header: title, optional description, right-aligned actions.
+ *
+ * Sits directly on the canvas — no chrome bar. The soft background does the
+ * separating; the header is just typography with room to breathe.
+ */
 export function PageHeader({
   title,
   description,
@@ -92,7 +97,7 @@ export function PageHeader({
   children?: React.ReactNode;
 }) {
   return (
-    <div className="border-b border-[var(--color-line)] bg-[var(--color-surface)] px-5 pt-4">
+    <div className="px-5 pt-5">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <h1 className="truncate text-[length:var(--text-2xl)] font-semibold tracking-tight">

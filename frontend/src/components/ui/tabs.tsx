@@ -8,7 +8,10 @@ import { cn } from '@/lib/utils';
 export const Tabs = TabsPrimitive.Root;
 export const TabsContent = TabsPrimitive.Content;
 
-/** Underline-style tab bar, matching the reference header tabs. */
+/**
+ * Segmented pill tab bar, matching the reference designs: triggers sit in a
+ * sunken rounded track, the active one floats on a raised white pill.
+ */
 export function TabsList({
   className,
   ...props
@@ -16,7 +19,7 @@ export function TabsList({
   return (
     <TabsPrimitive.List
       className={cn(
-        'flex scrollbar-none items-center gap-1 overflow-x-auto border-b border-[var(--color-line)]',
+        'inline-flex max-w-full scrollbar-none items-center gap-1 overflow-x-auto rounded-full bg-[var(--color-panel-sunken)] p-1',
         className,
       )}
       {...props}
@@ -31,9 +34,9 @@ export function TabsTrigger({
   return (
     <TabsPrimitive.Trigger
       className={cn(
-        'relative -mb-px border-b-2 border-transparent px-3 py-2 text-[length:var(--text-sm)] whitespace-nowrap text-[var(--color-ink-muted)] transition-colors',
+        'rounded-full px-3.5 py-1.5 text-[length:var(--text-sm)] whitespace-nowrap text-[var(--color-ink-muted)] transition-colors',
         'hover:text-[var(--color-ink)]',
-        'data-[state=active]:border-[var(--color-brand)] data-[state=active]:font-medium data-[state=active]:text-[var(--color-ink)]',
+        'data-[state=active]:bg-[var(--color-panel)] data-[state=active]:font-medium data-[state=active]:text-[var(--color-ink)] data-[state=active]:shadow-[var(--shadow-panel)]',
         className,
       )}
       {...props}

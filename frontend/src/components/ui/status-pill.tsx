@@ -5,22 +5,21 @@ import * as React from 'react';
 import { cn } from '@/lib/utils';
 
 /**
- * The saturated status pill from the reference design.
+ * Tinted status pill, as in the reference designs: a pastel wash of the status
+ * colour with the saturated hue reserved for the text and dot. Softer than a
+ * solid fill, but the pairing still reads as one status everywhere.
  *
  * Status colour is a token lookup, never an inline hex: the same status must
  * read identically in a pill, a kanban column header, and a table row tint.
  */
 export type StatusTone = 'todo' | 'progress' | 'review' | 'done' | 'stuck' | 'hold' | 'neutral';
 
-const TONE_STYLES: Record<StatusTone, { bg: string; fg: string }> = {
-  todo: { bg: 'var(--color-status-todo)', fg: '#04122b' },
-  progress: { bg: 'var(--color-status-progress)', fg: '#2a1a00' },
-  review: { bg: 'var(--color-status-review)', fg: '#1e0733' },
-  done: { bg: 'var(--color-status-done)', fg: '#03210f' },
-  stuck: { bg: 'var(--color-status-stuck)', fg: '#2b0505' },
-  hold: { bg: 'var(--color-status-hold)', fg: '#0b1220' },
-  neutral: { bg: 'var(--color-panel-raised)', fg: 'var(--color-ink-muted)' },
-};
+function toneColors(tone: StatusTone): { bg: string; fg: string } {
+  if (tone === 'neutral') {
+    return { bg: 'var(--color-panel-raised)', fg: 'var(--color-ink-muted)' };
+  }
+  return { bg: `var(--color-status-${tone}-soft)`, fg: `var(--color-status-${tone})` };
+}
 
 export interface StatusPillProps extends React.HTMLAttributes<HTMLSpanElement> {
   tone?: StatusTone;
@@ -37,37 +36,40 @@ export function StatusPill({
   children,
   ...props
 }: StatusPillProps) {
-  const style = TONE_STYLES[tone];
+  const colors = toneColors(tone);
   return (
     <span
       className={cn(
-        'inline-flex items-center justify-center rounded-[var(--radius-xs)] leading-none font-medium',
+        'inline-flex items-center justify-center gap-1.5 rounded-full leading-none font-medium',
         size === 'sm'
           ? 'h-5 px-2 text-[length:var(--text-2xs)]'
           : 'h-6 px-2.5 text-[length:var(--text-xs)]',
         block ? 'w-full' : '',
         className,
       )}
-      style={{ backgroundColor: style.bg, color: style.fg }}
+      style={{ backgroundColor: colors.bg, color: colors.fg }}
       {...props}
     >
+      <span
+        className="size-1.5 shrink-0 rounded-full"
+        style={{ backgroundColor: 'currentColor' }}
+        aria-hidden
+      />
       {children}
     </span>
   );
 }
 
-/** Low-alpha variant for tinting rows/columns without shouting. */
+/** Even quieter variant for inline row/column tinting. */
 export function StatusTint({ tone = 'neutral', className, children, ...props }: StatusPillProps) {
-  const soft =
-    tone === 'neutral' ? 'var(--color-panel-raised)' : `var(--color-status-${tone}-soft)`;
-  const solid = tone === 'neutral' ? 'var(--color-ink-muted)' : `var(--color-status-${tone})`;
+  const colors = toneColors(tone);
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-[var(--radius-xs)] px-2 py-0.5 text-[length:var(--text-xs)] font-medium',
+        'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[length:var(--text-xs)] font-medium',
         className,
       )}
-      style={{ backgroundColor: soft, color: solid }}
+      style={{ backgroundColor: colors.bg, color: colors.fg }}
       {...props}
     >
       {children}
@@ -76,13 +78,6 @@ export function StatusTint({ tone = 'neutral', className, children, ...props }: 
 }
 
 export type PriorityTone = 'low' | 'medium' | 'high' | 'urgent';
-
-const PRIORITY_STYLES: Record<PriorityTone, string> = {
-  low: 'var(--color-priority-low)',
-  medium: 'var(--color-priority-medium)',
-  high: 'var(--color-priority-high)',
-  urgent: 'var(--color-priority-urgent)',
-};
 
 export function PriorityPill({
   tone,
@@ -93,10 +88,13 @@ export function PriorityPill({
   return (
     <span
       className={cn(
-        'inline-flex h-6 items-center justify-center rounded-[var(--radius-xs)] px-2.5 text-[length:var(--text-xs)] font-medium text-white',
+        'inline-flex h-5 items-center justify-center rounded-full px-2 text-[length:var(--text-2xs)] font-semibold',
         className,
       )}
-      style={{ backgroundColor: PRIORITY_STYLES[tone] }}
+      style={{
+        backgroundColor: `var(--color-priority-${tone}-soft)`,
+        color: `var(--color-priority-${tone})`,
+      }}
       {...props}
     >
       {children}

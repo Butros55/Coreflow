@@ -5,6 +5,7 @@ import * as React from 'react';
 import { Toaster } from 'sonner';
 
 import { ApiError } from '@/lib/api/client';
+import { ThemeSync, useDarkTheme } from '@/lib/theme';
 
 function makeQueryClient(): QueryClient {
   return new QueryClient({
@@ -44,18 +45,21 @@ function getQueryClient(): QueryClient {
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const queryClient = getQueryClient();
+  const [dark] = useDarkTheme();
 
   return (
     <QueryClientProvider client={queryClient}>
+      <ThemeSync />
       {children}
       <Toaster
-        theme="dark"
+        theme={dark ? 'dark' : 'light'}
         position="bottom-right"
         toastOptions={{
           style: {
-            background: 'var(--color-panel-raised)',
+            background: 'var(--color-panel)',
             border: '1px solid var(--color-line)',
             color: 'var(--color-ink)',
+            boxShadow: 'var(--shadow-popover)',
           },
         }}
       />

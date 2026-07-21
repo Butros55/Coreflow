@@ -24,12 +24,12 @@ export function DialogContent({
 }) {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="data-[state=open]:animate-in data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" />
+      <DialogPrimitive.Overlay className="data-[state=open]:animate-in data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/30 backdrop-blur-sm" />
       <DialogPrimitive.Content
         className={cn(
           'fixed top-1/2 left-1/2 z-50 max-h-[85dvh] w-full -translate-x-1/2 -translate-y-1/2 overflow-y-auto',
           wide ? 'max-w-2xl' : 'max-w-md',
-          'rounded-[var(--radius-lg)] border border-[var(--color-line-strong)] bg-[var(--color-panel)] p-5 shadow-[var(--shadow-popover)]',
+          'rounded-[var(--radius-xl)] border border-[var(--color-line-subtle)] bg-[var(--color-panel)] p-5 shadow-[var(--shadow-popover)]',
           className,
         )}
         {...props}

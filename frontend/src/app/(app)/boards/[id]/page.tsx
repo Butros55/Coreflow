@@ -96,7 +96,7 @@ function BoardPageInner() {
   return (
     <div className="flex h-full min-h-0">
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="border-b border-[var(--color-line)] bg-[var(--color-surface)] px-5 pt-4">
+        <header className="px-5 pt-5">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <h1 className="truncate text-[length:var(--text-2xl)] font-semibold tracking-tight">
@@ -114,7 +114,7 @@ function BoardPageInner() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2 py-3">
-            <div className="flex overflow-hidden rounded-[var(--radius-sm)] border border-[var(--color-line)]">
+            <div className="flex items-center gap-1 rounded-full bg-[var(--color-panel-sunken)] p-1">
               <ViewButton
                 active={view === 'kanban'}
                 onClick={() => setViewOverride('kanban')}
@@ -212,8 +212,8 @@ function ViewButton({
       aria-pressed={active}
       className={
         active
-          ? 'flex h-8 items-center gap-1.5 bg-[var(--color-brand-subtle)] px-3 text-[length:var(--text-sm)] font-medium text-[var(--color-ink)]'
-          : 'flex h-8 items-center gap-1.5 px-3 text-[length:var(--text-sm)] text-[var(--color-ink-muted)] transition-colors hover:bg-[var(--color-panel-raised)]'
+          ? 'flex h-7 items-center gap-1.5 rounded-full bg-[var(--color-panel)] px-3 text-[length:var(--text-sm)] font-medium text-[var(--color-ink)] shadow-[var(--shadow-panel)]'
+          : 'flex h-7 items-center gap-1.5 rounded-full px-3 text-[length:var(--text-sm)] text-[var(--color-ink-muted)] transition-colors hover:text-[var(--color-ink)]'
       }
     >
       {icon}

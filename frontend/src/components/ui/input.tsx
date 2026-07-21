@@ -17,9 +17,9 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(function Inp
       ref={ref}
       aria-invalid={invalid || undefined}
       className={cn(
-        'flex h-8 w-full rounded-[var(--radius-sm)] border bg-[var(--color-panel-sunken)] px-2.5 text-[length:var(--text-sm)] text-[var(--color-ink)]',
+        'flex h-8 w-full rounded-[var(--radius-md)] border bg-[var(--color-panel-sunken)] px-3 text-[length:var(--text-sm)] text-[var(--color-ink)]',
         'placeholder:text-[var(--color-ink-subtle)]',
-        'transition-colors focus:border-[var(--color-brand)] focus:outline-none',
+        'transition-[border-color,box-shadow,background-color] focus:border-[var(--color-brand)] focus:bg-[var(--color-panel)] focus:shadow-[0_0_0_3px_var(--color-brand-ring)] focus:outline-none',
         'disabled:cursor-not-allowed disabled:opacity-50',
         invalid
           ? 'border-[var(--color-danger)]'
@@ -40,9 +40,9 @@ export const Textarea = React.forwardRef<
       ref={ref}
       aria-invalid={invalid || undefined}
       className={cn(
-        'flex min-h-[72px] w-full rounded-[var(--radius-sm)] border bg-[var(--color-panel-sunken)] px-2.5 py-2 text-[length:var(--text-sm)] text-[var(--color-ink)]',
+        'flex min-h-[72px] w-full rounded-[var(--radius-md)] border bg-[var(--color-panel-sunken)] px-3 py-2 text-[length:var(--text-sm)] text-[var(--color-ink)]',
         'placeholder:text-[var(--color-ink-subtle)]',
-        'transition-colors focus:border-[var(--color-brand)] focus:outline-none',
+        'transition-[border-color,box-shadow,background-color] focus:border-[var(--color-brand)] focus:bg-[var(--color-panel)] focus:shadow-[0_0_0_3px_var(--color-brand-ring)] focus:outline-none',
         'disabled:cursor-not-allowed disabled:opacity-50',
         invalid
           ? 'border-[var(--color-danger)]'
