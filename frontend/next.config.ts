@@ -11,6 +11,15 @@ const isDev = process.env.NODE_ENV === 'development';
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 
+// Docker dev: bind mounts on Windows/macOS hosts don't forward file-change
+// events into the container, so docker-compose.yml sets WATCH_POLL_INTERVAL_MS
+// and the dev server polls instead. Webpack honors it via watchOptions.poll;
+// Turbopack accepts the option too but its poll watcher detects nothing on
+// these mounts as of Next 16.2 (vercel/next.js#68255) — hence the container
+// runs `dev:docker` (--webpack). Unset — e.g. `npm run dev` directly on the
+// host — keeps the cheaper event-based watching.
+const watchPollMs = Number(process.env.WATCH_POLL_INTERVAL_MS);
+
 const csp = [
   `default-src 'self'`,
   `script-src 'self'${isDev ? " 'unsafe-eval' 'unsafe-inline'" : ""}`,
@@ -38,6 +47,8 @@ const nextConfig: NextConfig = {
   output: 'standalone',
 
   poweredByHeader: false,
+
+  ...(watchPollMs > 0 ? { watchOptions: { pollIntervalMs: watchPollMs } } : {}),
 
   async headers() {
     return [

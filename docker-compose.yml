@@ -35,14 +35,13 @@ x-backend-env: &backend-env
   LEXWARE_WEBHOOK_SECRET: ${LEXWARE_WEBHOOK_SECRET:-}
   LEXWARE_SYNC_INTERVAL_MINUTES: ${LEXWARE_SYNC_INTERVAL_MINUTES:-30}
   LEXWARE_CREATE_FINAL_INVOICES: ${LEXWARE_CREATE_FINAL_INVOICES:-false}
-  CLOCKODO_ENABLED: ${CLOCKODO_ENABLED:-false}
-  CLOCKODO_API_BASE_URL: ${CLOCKODO_API_BASE_URL:-https://my.clockodo.com/api}
-  CLOCKODO_API_USER: ${CLOCKODO_API_USER:-}
-  CLOCKODO_API_KEY: ${CLOCKODO_API_KEY:-}
-  CLOCKODO_EXTERNAL_APP_NAME: ${CLOCKODO_EXTERNAL_APP_NAME:-Coreflow}
-  CLOCKODO_EXTERNAL_APP_EMAIL: ${CLOCKODO_EXTERNAL_APP_EMAIL:-}
-  CLOCKODO_WEBHOOK_TOKEN: ${CLOCKODO_WEBHOOK_TOKEN:-}
-  CLOCKODO_SYNC_INTERVAL_MINUTES: ${CLOCKODO_SYNC_INTERVAL_MINUTES:-15}
+  CLOCKIFY_ENABLED: ${CLOCKIFY_ENABLED:-false}
+  CLOCKIFY_API_BASE_URL: ${CLOCKIFY_API_BASE_URL:-https://api.clockify.me/api/v1}
+  CLOCKIFY_API_KEY: ${CLOCKIFY_API_KEY:-}
+  CLOCKIFY_WORKSPACE_ID: ${CLOCKIFY_WORKSPACE_ID:-}
+  CLOCKIFY_WEBHOOK_TOKEN: ${CLOCKIFY_WEBHOOK_TOKEN:-}
+  CLOCKIFY_SYNC_INTERVAL_MINUTES: ${CLOCKIFY_SYNC_INTERVAL_MINUTES:-15}
+  CLOCKIFY_PUSH_LOOKBACK_DAYS: ${CLOCKIFY_PUSH_LOOKBACK_DAYS:-30}
   # MinIO ships in the dev stack so file upload is exercised the same way as prod.
   OBJECT_STORAGE_ENDPOINT: ${OBJECT_STORAGE_ENDPOINT:-http://minio:9000}
   OBJECT_STORAGE_ACCESS_KEY: ${OBJECT_STORAGE_ACCESS_KEY:-coreflow}
@@ -204,7 +203,11 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       target: dev
-    command: npm run dev
+    # dev:docker runs webpack instead of Turbopack: Turbopack's poll watcher
+    # (watchOptions.pollIntervalMs) does not detect any changes on Windows/macOS
+    # bind mounts as of Next 16.2 (vercel/next.js#68255), so with Turbopack the
+    # only way to pick up an edit is restarting the container.
+    command: npm run dev:docker
     environment:
       # Browser-facing: must be reachable from the *host*, so it uses the
       # published port, not the in-network one.
@@ -212,7 +215,12 @@ services:
       # Server-side (SSR) calls stay inside the compose network.
       INTERNAL_API_URL: http://backend:8000
       NODE_ENV: development
-      WATCHPACK_POLLING: "true"  # bind mounts on Windows/macOS don't emit inotify events
+      # Bind mounts on Windows/macOS don't emit inotify events inside the
+      # container, so the watcher must poll. next.config.ts maps this to
+      # watchOptions.pollIntervalMs (-> webpack watchOptions.poll). Replaces
+      # WATCHPACK_POLLING, which stopped working when Next 16 made Turbopack
+      # the default bundler.
+      WATCH_POLL_INTERVAL_MS: "500"
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     volumes:

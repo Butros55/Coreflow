@@ -26,12 +26,11 @@ const FIELD_LABELS: Record<string, string> = {
   due_date: 'Fällig am',
   estimated_hours: 'Geschätzt',
   sprint: 'Sprint',
-  phase: 'Phase',
 };
 
 /**
  * Create a task anywhere a project is known: the project and its board (and
- * thus the client) are wired automatically; sprint/phase are offered when the
+ * thus the client) are wired automatically; a sprint is offered when the
  * project has any.
  */
 export function CreateTaskDialog({
@@ -40,7 +39,6 @@ export function CreateTaskDialog({
   projectId,
   boardId,
   defaultSprint = null,
-  defaultPhase = null,
   defaultStatus = 'todo',
 }: {
   open: boolean;
@@ -48,7 +46,6 @@ export function CreateTaskDialog({
   projectId: string;
   boardId: string;
   defaultSprint?: string | null;
-  defaultPhase?: string | null;
   defaultStatus?: TaskStatus;
 }) {
   return (
@@ -60,7 +57,6 @@ export function CreateTaskDialog({
           projectId={projectId}
           boardId={boardId}
           defaultSprint={defaultSprint}
-          defaultPhase={defaultPhase}
           defaultStatus={defaultStatus}
           onClose={() => onOpenChange(false)}
         />
@@ -73,23 +69,20 @@ function CreateTaskForm({
   projectId,
   boardId,
   defaultSprint,
-  defaultPhase,
   defaultStatus,
   onClose,
 }: {
   projectId: string;
   boardId: string;
   defaultSprint: string | null;
-  defaultPhase: string | null;
   defaultStatus: TaskStatus;
   onClose: () => void;
 }) {
   const createTask = useCreateTask();
-  // Sprint/phase pickers feed from the project — only rendered when present.
+  // The sprint picker feeds from the project — only rendered when present.
   const { data: project } = useProject(projectId);
   const { data: sprintsData } = useSprints(projectId);
   const sprints = (sprintsData?.results ?? []).filter((sprint) => sprint.status !== 'completed');
-  const phases = project?.phases ?? [];
 
   const [title, setTitle] = React.useState('');
   const [status, setStatus] = React.useState<TaskStatus>(defaultStatus);
@@ -97,7 +90,6 @@ function CreateTaskForm({
   const [dueDate, setDueDate] = React.useState('');
   const [estimatedHours, setEstimatedHours] = React.useState('');
   const [sprint, setSprint] = React.useState<string>(defaultSprint ?? '');
-  const [phase, setPhase] = React.useState<string>(defaultPhase ?? '');
   const [errors, setErrors] = React.useState<Record<string, string>>({});
 
   const submit = (event: React.FormEvent) => {
@@ -113,7 +105,6 @@ function CreateTaskForm({
         due_date: dueDate || null,
         estimated_hours: estimatedHours || null,
         sprint: sprint || null,
-        phase: phase || null,
       },
       {
         onSuccess: (task) => {
@@ -217,23 +208,6 @@ function CreateTaskForm({
             >
               <option value="">Backlog</option>
               {sprints.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </Select>
-          </div>
-        ) : null}
-        {phases.length > 0 ? (
-          <div>
-            <Label htmlFor="task-phase">Phase</Label>
-            <Select
-              id="task-phase"
-              value={phase}
-              onChange={(event) => setPhase(event.target.value)}
-            >
-              <option value="">Keine Phase</option>
-              {phases.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.name}
                 </option>

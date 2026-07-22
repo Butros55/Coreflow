@@ -1,7 +1,7 @@
 # Coreflow — Implementation Plan
 
 > Central business management system for a self-employed software developer in Germany:
-> CRM, projects, sprints, time tracking, invoicing, Lexware Office, optional Clockodo,
+> CRM, projects, sprints, time tracking, invoicing, Lexware Office, optional Clockify,
 > appointments, revenue analysis, and tax/reserve forecasting in one application.
 
 **Status legend:** ✅ done · 🟡 core delivered, full scope pending · 🚧 in progress · ⬜ planned
@@ -11,7 +11,7 @@
 | 0 | Repo analysis, planning docs, scaffold, auth, workspaces, dark UI shell | ✅ |
 | 1 | CRM: clients, contacts, notes, activities, client dashboard | 🟡 |
 | 2 | Projects, phases, boards, sprints, tasks, kanban, task drawer | 🟡 |
-| 3 | Internal time tracking (fully Clockodo-independent) | 🟡 |
+| 3 | Internal time tracking (fully Clockify-independent) | 🟡 |
 
 **🟡 delivered so far (phases 1–3):** full data layer + API with tests, demo seeds, and the
 reference-design UI: grouped client tables + client dashboard tabs, kanban with persisted
@@ -21,7 +21,7 @@ timer widget, My-Tasks buckets.
 **Still open for the full phase scope:** bulk actions (P1); dependencies, custom fields and saved
 views (P2); favourites and overlap warning (P3). Client card view, subtasks UI, timeline/Gantt,
 PDF/CSV export and the audit change log have since been delivered.
-| 4 | Clockodo integration (optional provider) | ✅ |
+| 4 | Clockify integration (optional provider) | ✅ |
 | 5 | Lexware Office integration + invoice workflow | ✅ |
 | 6 | Finance dashboard + tax/reserve forecast | ✅ |
 | 7 | Appointments, files, global activity feed | ✅ |
@@ -41,14 +41,16 @@ cards that show real connection state with `.env` enablement hints instead of de
 **All navigation pages now resolve to real, functional screens — no `ComingSoon` placeholders
 remain.**
 
-**✅ Clockodo (phase 4):** full sync engine — customers/projects/services mirrored structurally
+**✅ Clockify (phase 4):** full sync engine — clients/projects/tags mirrored structurally
 both ways (name-match or create, mapping via `ExternalObjectLink` only, CRM fields never
-overwritten), users matched by e-mail only, entries pulled inbound with hash idempotency, local
-edits pushed back when remote is unchanged, and every true divergence (or any remote change to a
-locked/billed entry) surfacing as a `SyncConflict` — never auto-merged. Webhook receiver with
-persist-then-ack, constant-time token check, dedupe constraint, and the UI-only registration
-handshake surfaced in the integration centre (URL + secret to paste into Clockodo). Billed
-invoices push `billable=2` per entry (retried task). Beat: incremental entry sync + Lexware
+overwritten), users matched by e-mail only, entries synced bidirectionally with hash idempotency
+(inbound pull, on-commit push of local create/edit/delete, windowed outbound backfill), Lexware
+dedup on import (an entry existing in both systems becomes ONE entry with both tags), and every
+true divergence (or any remote change to a locked/billed entry) surfacing as a `SyncConflict` —
+never auto-merged. Webhook receiver with persist-then-ack, constant-time signature check and
+dedupe constraint; webhooks are registered in the Clockify UI (one per event type, URL surfaced in
+the integration centre). Billed invoices tag linked entries "Abgerechnet" (retried task). Beat:
+incremental two-way sync + Lexware
 invoice-status/payment refresh + webhook backstop — all previously referenced task modules now
 actually exist and register with the worker.
 
@@ -106,8 +108,8 @@ Resolved versions, and where a deliberate choice differs from "newest available"
    appointments, budgets, files, forecasts, settings.
 6. **Lexware is authoritative** for invoice numbers, finalised invoices, invoice status, PDFs,
    payments, open amounts, and bookkeeping vouchers. We mirror; we never invent.
-7. **Clockodo is optional** and authoritative only for records that originate there. The internal
-   time tracking must work forever with `CLOCKODO_ENABLED=false`.
+7. **Clockify is optional** and authoritative only for records that originate there. The internal
+   time tracking must work forever with `CLOCKIFY_ENABLED=false`.
 8. **All external data is mirrored locally** through `ExternalObjectLink`; sync is idempotent via
    `sync_hash`; conflicts surface to a human and are never auto-merged or silently dropped.
 9. **Webhooks are persisted first, processed asynchronously** — both providers send *pointers, not
@@ -212,20 +214,22 @@ a check in application code loses a race), manual entries, week/day views, favou
 from a task, global running timer, configurable rounding, change log, overlap warning, open hours
 by client/project, and PDF/CSV timesheet export.
 
-**Must work entirely without Clockodo.** This is verified by a test that runs the full flow with
+**Must work entirely without Clockify.** This is verified by a test that runs the full flow with
 the integration disabled.
 
-## Phase 4 — Clockodo integration
+## Phase 4 — Clockify integration
 
-Per [docs/integrations/clockodo.md](docs/integrations/clockodo.md) — which corrects several
-assumptions in the brief:
+Per [docs/integrations/clockify.md](docs/integrations/clockify.md):
 
-* Resources are on **v3/v4**, not v2 (`/v3/customers`, `/v4/projects`, `/v2/entries`).
-* **Webhooks exist** (47 events, incl. `entry.started`/`entry.stopped`) but **cannot be registered
-  via API** — setup is a manual UI step with a human-in-the-loop secret handshake. That, not
-  polling, is the real constraint.
-* Marking entries billed **is** supported: `PUT /v2/entries/{id}` with `billable: 2`.
-* Entries have **no `offset` field**; paging keys are snake_case; the field is `lumpsum`.
+* Everything except `/user` and `/workspaces` is **workspace-scoped**; list endpoints return bare
+  arrays, entry listings are **per user**.
+* **Webhooks exist** (one event type per webhook, signing token per webhook) but registration is
+  a manual UI step; the tokens land comma-separated in `CLOCKIFY_WEBHOOK_TOKEN`. That, not
+  polling, is the real setup constraint.
+* Clockify has **no billed state** — billed entries are marked with the workspace tag
+  "Abgerechnet" instead.
+* A running entry is `timeInterval.end == null`; durations are computed from start/end, the
+  ISO-8601 duration string is never parsed.
 
 ## Phase 5 — Lexware + invoice workflow
 
@@ -276,7 +280,7 @@ scrubbing in logs, health/readiness, `make backup`/`restore`). Phase 9 added the
   (Art. 17 with **legal hold**: with business records → anonymise personal fields + purge
   satellites, invoices/entries/projects retained under § 147 AO / § 257 HGB; without → hard
   delete; name-confirmation required). Surfaced as the Datenschutz panel on the client page.
-* **Webhook throttling** on the unauthenticated Clockodo receiver.
+* **Webhook throttling** on the unauthenticated Clockify receiver.
 
 Dependency/licence overview and the retention-policy write-up are documentation → Phase 11.
 
@@ -295,7 +299,7 @@ audit trail. `make test-e2e` runs it. The journey immediately caught a real bug 
 
 README covers: feature overview, quickstart (`make setup`, no credentials needed), port
 collisions, every make target, architecture + ownership boundaries, provider setup incl. the
-draft-only invoice warning and the Clockodo webhook handshake, **update guide**, **production
+draft-only invoice warning and the Clockify webhook handshake, **update guide**, **production
 notes** (prod settings boot-refusal, reverse proxy/TLS, webhook reachability, backup cadence
 under the 10-year retention duty), and a **troubleshooting table** built from failure modes
 actually hit during development. `.env.example` documents every variable inline;
@@ -315,8 +319,8 @@ set. The unused Playwright scaffold was removed — `make test-e2e` now runs the
       drag-and-drop · internal time tracking · timer · Lexware connects from `.env` · **draft
       invoice from open hours** · finance dashboard · **traceable reserve forecast** · all
       integrations disableable
-- [x] Clockodo connects from `.env` — full customer/project/service/user/entry sync, webhook
-      receiver, billed-status push, invoice/payment sync from Lexware (scheduled polling)
+- [x] Clockify connects from `.env` — two-way client/project/tag/user/entry sync with Lexware
+      dedup, webhook receiver, billed-tag push, invoice/payment sync from Lexware (scheduled polling)
 - [ ] Nice-to-have follow-ups: Lexware contacts import · Lexware inbound webhook receiver
       (scheduled polling covers status/payment sync today) · bulk actions · task dependencies ·
       saved views

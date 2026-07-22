@@ -1,4 +1,4 @@
-"""Internal time tracking — fully functional with Clockodo disabled, forever."""
+"""Internal time tracking — fully functional with Clockify disabled, forever."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from apps.core.models import BaseModel, WorkspaceScopedModel
 
 
 class ServiceType(WorkspaceScopedModel, BaseModel):
-    """Leistungsart. Maps to a Clockodo service when that integration is on."""
+    """Leistungsart. Maps to a Clockify tag when that integration is on."""
 
     name = models.CharField(max_length=100)
     description = models.CharField(max_length=300, blank=True)
@@ -43,9 +43,11 @@ class BillingStatus(models.TextChoices):
 class EntrySource(models.TextChoices):
     MANUAL = "manual", _("Manuell")
     TIMER = "timer", _("Timer")
-    CLOCKODO = "clockodo", _("Clockodo")
+    CLOCKIFY = "clockify", _("Clockify")
     # Reconstructed from an imported Lexware invoice line — the hours were
-    # billed there before Coreflow existed and had no local counterpart.
+    # billed there before Coreflow existed and had no local counterpart. An
+    # entry keeps this source even after it is linked to its Clockify twin;
+    # the Clockify membership is visible via the ExternalObjectLink.
     LEXWARE = "lexware", _("Lexware")
 
 

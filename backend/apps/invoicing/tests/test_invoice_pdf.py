@@ -1,4 +1,9 @@
-"""Invoice PDF: streamed from Lexware on demand — draft or final."""
+"""Invoice PDF: streamed from Lexware on demand — finalised vouchers only.
+
+Drafts have no renderable document in Lexware (the API answers 406 by
+design), so the endpoint refuses them locally with a pointer to the
+Lexware deeplink instead of relaying a cryptic upstream error.
+"""
 
 from __future__ import annotations
 
@@ -15,7 +20,7 @@ from apps.accounts.models import User, Workspace
 from apps.crm.models import Client
 from apps.integrations.base import TokenBucketLimiter
 from apps.integrations.models import ExternalObjectLink, Provider
-from apps.invoicing.models import Invoice
+from apps.invoicing.models import Invoice, InvoiceStatus
 from apps.invoicing.services import compose_invoice
 from apps.invoicing.tests.test_invoicing import make_entry
 
@@ -36,14 +41,24 @@ def client_record(workspace: Workspace) -> Client:
     )
 
 
-def _invoice(workspace: Workspace, user: User, client_record: Client) -> Invoice:
+def _invoice(
+    workspace: Workspace,
+    user: User,
+    client_record: Client,
+    *,
+    status: str | None = None,
+) -> Invoice:
     entry = make_entry(workspace, user, client_record, hours=1)
-    return compose_invoice(
+    invoice = compose_invoice(
         workspace=workspace,
         client=client_record,
         entry_ids=[str(entry.pk)],
         grouping="lump_sum",
     )
+    if status is not None:
+        invoice.status = status
+        invoice.save(update_fields=["status", "updated_at"])
+    return invoice
 
 
 def _link(workspace: Workspace, invoice: Invoice) -> None:
@@ -63,7 +78,7 @@ class TestInvoicePdf:
     def test_streams_the_lexware_document(
         self, auth_client: APIClient, workspace: Workspace, user: User, client_record: Client
     ) -> None:
-        invoice = _invoice(workspace, user, client_record)
+        invoice = _invoice(workspace, user, client_record, status=InvoiceStatus.OPEN)
         _link(workspace, invoice)
         respx.get(f"{LEXWARE}/v1/invoices/lex-pdf-1/file").mock(
             return_value=httpx.Response(
@@ -76,10 +91,19 @@ class TestInvoicePdf:
         assert response.headers["Content-Type"] == "application/pdf"
         assert b"".join(response.streaming_content) == b"%PDF-1.7 lexware"  # type: ignore[attr-defined]
 
-    def test_unsent_local_draft_has_no_pdf(
+    def test_draft_is_refused_locally_with_a_helpful_message(
         self, auth_client: APIClient, workspace: Workspace, user: User, client_record: Client
     ) -> None:
         invoice = _invoice(workspace, user, client_record)
+        response = auth_client.get(reverse("invoice-pdf", args=[invoice.pk]))
+        assert response.status_code == 409
+        assert response.data["error"]["code"] == "draft_has_no_pdf"
+        assert "Finalisierung" in response.data["error"]["message"]
+
+    def test_finalised_without_remote_link_is_404(
+        self, auth_client: APIClient, workspace: Workspace, user: User, client_record: Client
+    ) -> None:
+        invoice = _invoice(workspace, user, client_record, status=InvoiceStatus.OPEN)
         response = auth_client.get(reverse("invoice-pdf", args=[invoice.pk]))
         assert response.status_code == 404
         assert response.data["error"]["code"] == "no_remote_document"
@@ -89,7 +113,7 @@ class TestInvoicePdf:
     def test_lexware_406_becomes_a_friendly_message(
         self, auth_client: APIClient, workspace: Workspace, user: User, client_record: Client
     ) -> None:
-        invoice = _invoice(workspace, user, client_record)
+        invoice = _invoice(workspace, user, client_record, status=InvoiceStatus.OPEN)
         _link(workspace, invoice)
         respx.get(f"{LEXWARE}/v1/invoices/lex-pdf-1/file").mock(
             return_value=httpx.Response(406, json={"message": "not renderable"})
@@ -101,7 +125,8 @@ class TestInvoicePdf:
     def test_disabled_integration_is_a_clear_409(
         self, auth_client: APIClient, workspace: Workspace, user: User, client_record: Client
     ) -> None:
-        invoice = _invoice(workspace, user, client_record)
+        invoice = _invoice(workspace, user, client_record, status=InvoiceStatus.OPEN)
         _link(workspace, invoice)
         response = auth_client.get(reverse("invoice-pdf", args=[invoice.pk]))
         assert response.status_code == 409
+        assert response.data["error"]["code"] == "integration_disabled"

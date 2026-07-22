@@ -1,6 +1,6 @@
 'use client';
 
-import { FileText, ArrowLeft, Clock3, Info, Send, Trash2 } from 'lucide-react';
+import { FileText, ArrowLeft, Clock3, ExternalLink, Info, Send, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import * as React from 'react';
@@ -8,11 +8,11 @@ import { toast } from 'sonner';
 
 import { PageHeader } from '@/components/layout/app-shell';
 import { api } from '@/lib/api/client';
+import { AssignProjectToInvoiceMenu } from '@/components/invoices/assign-invoice-menu';
 import { DetailErrorState } from '@/components/ui/detail-error';
 import { InvoiceStatusBadge } from '@/components/invoices/invoice-status-badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
-import { DataTable, Td, Th } from '@/components/ui/group-bar';
 import { Label } from '@/components/ui/input';
 import { Panel, PanelBody, PanelHeader, PanelTitle } from '@/components/ui/panel';
 import { Select } from '@/components/ui/select';
@@ -28,7 +28,7 @@ import {
   type TaxType,
 } from '@/lib/api/invoicing';
 import { usePermissions } from '@/lib/session';
-import { formatHours, formatMoney } from '@/lib/utils';
+import { cn, formatHours, formatMoney } from '@/lib/utils';
 
 export default function InvoiceDetailPage() {
   const params = useParams<{ id: string }>();
@@ -63,6 +63,13 @@ export default function InvoiceDetailPage() {
         actions={
           <div className="flex items-center gap-2">
             <InvoiceStatusBadge status={invoice.status} />
+            {invoice.lexware_url ? (
+              <Button variant="secondary" size="sm" asChild>
+                <a href={invoice.lexware_url} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink aria-hidden /> In Lexware öffnen
+                </a>
+              </Button>
+            ) : null}
             <PdfButton invoiceId={invoice.id} status={invoice.status} />
             <Button variant="ghost" size="sm" asChild>
               <Link href="/invoices">
@@ -80,7 +87,7 @@ export default function InvoiceDetailPage() {
           <LinesPanel invoice={invoice} canEdit={canEdit} />
         </div>
         <div className="space-y-4">
-          <TotalsPanel invoice={invoice} canEdit={canEdit} />
+          <TotalsPanel invoice={invoice} canEdit={canEdit} canAssign={permissions.can_write} />
           <ActionsPanel
             invoice={invoice}
             canWrite={permissions.can_write}
@@ -151,119 +158,151 @@ function LinesPanelEditor({
     );
   };
 
+  const inputClass =
+    'rounded-[var(--radius-sm)] border border-transparent bg-transparent px-1.5 py-0.5 transition-[border-color,background-color,box-shadow] hover:border-[var(--color-line)] focus:border-[var(--color-brand)] focus:bg-[var(--color-panel)] focus:shadow-[0_0_0_3px_var(--color-brand-ring)] focus:outline-none';
+
   return (
     <Panel>
       <PanelHeader>
-        <PanelTitle>Positionen</PanelTitle>
+        <div className="flex items-baseline gap-2">
+          <PanelTitle>Positionen</PanelTitle>
+          <span className="text-[length:var(--text-xs)] text-[var(--color-ink-subtle)]">
+            {lines.length}
+          </span>
+        </div>
         {canEdit && dirty ? (
           <Button variant="primary" size="sm" onClick={save} loading={update.isPending}>
             Speichern
           </Button>
         ) : null}
       </PanelHeader>
-      <DataTable>
-        <thead>
-          <tr>
-            <Th className="w-[40%]">Bezeichnung</Th>
-            <Th className="text-right">Menge</Th>
-            <Th className="text-right">Einzelpreis</Th>
-            <Th className="text-right">USt %</Th>
-            <Th className="text-right">Gesamt</Th>
-          </tr>
-        </thead>
-        <tbody>
-          {lines.map((line) => (
-            <tr key={line.id} className="last:[&>td]:border-b-0">
-              <Td>
+      <PanelBody className="p-2">
+        <ul className="divide-y divide-[var(--color-line-subtle)]">
+          {lines.map((line, index) => (
+            <li key={line.id} className="flex gap-3.5 px-2.5 py-3.5 first:pt-2.5 last:pb-2.5">
+              {/* Position number chip — gives the list rhythm without a table grid. */}
+              <span
+                className="tabular mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-[var(--color-brand-subtle)] text-[length:var(--text-2xs)] font-semibold text-[var(--color-brand)]"
+                aria-hidden
+              >
+                {String(index + 1).padStart(2, '0')}
+              </span>
+
+              <div className="min-w-0 flex-1">
                 {canEdit ? (
                   <input
                     value={line.title}
                     onChange={(event) => editLine(line.id, 'title', event.target.value)}
-                    className="w-full bg-transparent text-[length:var(--text-sm)] outline-none focus:rounded focus:ring-2 focus:ring-[var(--color-brand-ring)]"
+                    className={cn('w-full text-[length:var(--text-base)] font-medium', inputClass)}
                     aria-label="Positionsbezeichnung"
                   />
                 ) : (
-                  line.title
+                  <div className="text-[length:var(--text-base)] font-medium">{line.title}</div>
                 )}
                 {line.description ? (
-                  <div className="text-[length:var(--text-2xs)] text-[var(--color-ink-subtle)]">
+                  <div className="mt-0.5 text-[length:var(--text-xs)] leading-relaxed text-[var(--color-ink-muted)]">
                     {line.description}
                   </div>
                 ) : null}
-                {line.time_entries?.length ? <LineEntriesHint entries={line.time_entries} /> : null}
-              </Td>
-              <Td className="text-right">
-                {canEdit ? (
-                  <input
-                    value={line.quantity}
-                    onChange={(event) => editLine(line.id, 'quantity', event.target.value)}
-                    className="tabular w-16 bg-transparent text-right outline-none focus:rounded focus:ring-2 focus:ring-[var(--color-brand-ring)]"
-                    inputMode="decimal"
-                    aria-label="Menge"
-                  />
-                ) : (
-                  <span className="tabular">{line.quantity}</span>
-                )}{' '}
-                <span className="text-[length:var(--text-2xs)] text-[var(--color-ink-subtle)]">
-                  {line.unit}
+                {line.time_entries?.length ? <LineEntryChips entries={line.time_entries} /> : null}
+              </div>
+
+              <div className="flex shrink-0 flex-col items-end gap-0.5">
+                <span className="tabular text-[length:var(--text-lg)] font-semibold">
+                  {formatMoney(line.total_price)}
                 </span>
-              </Td>
-              <Td className="text-right">
-                {canEdit ? (
-                  <input
-                    value={line.unit_price}
-                    onChange={(event) => editLine(line.id, 'unit_price', event.target.value)}
-                    className="tabular w-20 bg-transparent text-right outline-none focus:rounded focus:ring-2 focus:ring-[var(--color-brand-ring)]"
-                    inputMode="decimal"
-                    aria-label="Einzelpreis"
-                  />
-                ) : (
-                  <span className="tabular">{formatMoney(line.unit_price)}</span>
-                )}
-              </Td>
-              <Td className="tabular text-right text-[var(--color-ink-muted)]">
-                {taxType === 'vatfree' ? '—' : `${Number(line.tax_rate)}%`}
-              </Td>
-              <Td className="tabular text-right font-medium">{formatMoney(line.total_price)}</Td>
-            </tr>
+                <span className="tabular flex items-center gap-1 text-[length:var(--text-xs)] text-[var(--color-ink-muted)]">
+                  {canEdit ? (
+                    <input
+                      value={line.quantity}
+                      onChange={(event) => editLine(line.id, 'quantity', event.target.value)}
+                      className={cn('tabular w-14 text-right', inputClass)}
+                      inputMode="decimal"
+                      aria-label="Menge"
+                    />
+                  ) : (
+                    <span>{Number(line.quantity).toLocaleString('de-DE')}</span>
+                  )}
+                  <span className="text-[var(--color-ink-subtle)]">{line.unit} ×</span>
+                  {canEdit ? (
+                    <input
+                      value={line.unit_price}
+                      onChange={(event) => editLine(line.id, 'unit_price', event.target.value)}
+                      className={cn('tabular w-16 text-right', inputClass)}
+                      inputMode="decimal"
+                      aria-label="Einzelpreis"
+                    />
+                  ) : (
+                    <span>{formatMoney(line.unit_price)}</span>
+                  )}
+                </span>
+                <span className="text-[length:var(--text-2xs)] text-[var(--color-ink-subtle)]">
+                  {taxType === 'vatfree' ? 'steuerfrei' : `zzgl. ${Number(line.tax_rate)} % USt`}
+                </span>
+              </div>
+            </li>
           ))}
-        </tbody>
-      </DataTable>
+        </ul>
+      </PanelBody>
     </Panel>
   );
 }
 
-function LineEntriesHint({ entries }: { entries: InvoiceLineTimeEntry[] }) {
+/**
+ * The billed time entries of a line, as scannable chips: date + hours each,
+ * so the provenance of a position is visible without hovering.
+ */
+function LineEntryChips({ entries }: { entries: InvoiceLineTimeEntry[] }) {
   const fromLexware = entries.some((entry) => entry.source === 'lexware_import');
   const totalSeconds = entries.reduce((sum, entry) => sum + entry.duration_seconds, 0);
-  const tooltip = entries
-    .map(
-      (entry) =>
-        `${new Date(entry.started_at).toLocaleDateString('de-DE')} · ${formatHours(
-          entry.duration_seconds / 3600,
-        )}${entry.description ? ` · ${entry.description}` : ''}`,
-    )
-    .join('\n');
+  const MAX_CHIPS = 4;
+  const shown = entries.slice(0, MAX_CHIPS);
+  const hidden = entries.length - shown.length;
+
   return (
-    <div
-      title={tooltip}
-      className="mt-1 flex flex-wrap items-center gap-1.5 text-[length:var(--text-2xs)] text-[var(--color-ink-subtle)]"
-    >
-      <Clock3 className="size-3" aria-hidden />
-      <span>
-        {entries.length === 1 ? '1 Zeiteintrag' : `${entries.length} Zeiteinträge`} ·{' '}
-        {formatHours(totalSeconds / 3600)}
-      </span>
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      {shown.map((entry) => (
+        <span
+          key={entry.time_entry_id}
+          title={entry.description || undefined}
+          className="inline-flex items-center gap-1 rounded-full bg-[var(--color-panel-sunken)] px-2 py-0.5 text-[length:var(--text-2xs)] text-[var(--color-ink-muted)]"
+        >
+          <Clock3 className="size-3 text-[var(--color-ink-subtle)]" aria-hidden />
+          {new Date(entry.started_at).toLocaleDateString('de-DE', {
+            day: 'numeric',
+            month: 'numeric',
+          })}{' '}
+          · {formatHours(entry.duration_seconds / 3600)}
+        </span>
+      ))}
+      {hidden > 0 ? (
+        <span className="text-[length:var(--text-2xs)] text-[var(--color-ink-subtle)]">
+          +{hidden} weitere
+        </span>
+      ) : null}
+      {entries.length > 1 ? (
+        <span className="text-[length:var(--text-2xs)] font-medium text-[var(--color-ink-muted)]">
+          Σ {formatHours(totalSeconds / 3600)}
+        </span>
+      ) : null}
       {fromLexware ? (
-        <span className="rounded-[var(--radius-xs)] bg-[var(--color-info-soft)] px-1.5 py-px font-medium text-[var(--color-info)]">
-          aus Lexware zugeordnet
+        <span className="inline-flex items-center rounded-full bg-[var(--color-info-soft)] px-2 py-0.5 text-[length:var(--text-2xs)] font-medium text-[var(--color-info)]">
+          aus Lexware
         </span>
       ) : null}
     </div>
   );
 }
 
-function TotalsPanel({ invoice, canEdit }: { invoice: Invoice; canEdit: boolean }) {
+function TotalsPanel({
+  invoice,
+  canEdit,
+  canAssign,
+}: {
+  invoice: Invoice;
+  canEdit: boolean;
+  canAssign: boolean;
+}) {
   const update = useUpdateInvoice(invoice.id);
 
   return (
@@ -272,6 +311,32 @@ function TotalsPanel({ invoice, canEdit }: { invoice: Invoice; canEdit: boolean 
         <PanelTitle>Summen</PanelTitle>
       </PanelHeader>
       <PanelBody className="space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[length:var(--text-sm)] text-[var(--color-ink-muted)]">
+            Projekt
+          </span>
+          <div className="flex min-w-0 items-center gap-2">
+            {invoice.project ? (
+              <Link
+                href={`/projects/${invoice.project}`}
+                className="truncate text-[length:var(--text-sm)] font-medium text-[var(--color-brand)] hover:underline"
+              >
+                {invoice.project_name}
+              </Link>
+            ) : (
+              <span className="text-[length:var(--text-sm)] text-[var(--color-ink-subtle)]">
+                Nicht zugeordnet
+              </span>
+            )}
+            {canAssign ? (
+              <AssignProjectToInvoiceMenu
+                invoiceId={invoice.id}
+                clientId={invoice.client}
+                currentProjectId={invoice.project}
+              />
+            ) : null}
+          </div>
+        </div>
         {canEdit ? (
           <div>
             <Label htmlFor="invoice-tax-type">Steuerart</Label>
@@ -439,8 +504,9 @@ function ActionsPanel({
 
 function PdfButton({ invoiceId, status }: { invoiceId: string; status: Invoice['status'] }) {
   const [busy, setBusy] = React.useState(false);
-  // Only vouchers that exist in Lexware have a rendered document.
-  if (!['draft_remote', 'open', 'overdue', 'paid', 'voided'].includes(status)) return null;
+  // Only finalised vouchers have a rendered document — Lexware refuses to
+  // render drafts by design, so the button never shows for them.
+  if (!['open', 'overdue', 'paid', 'voided'].includes(status)) return null;
 
   const open = async () => {
     setBusy(true);

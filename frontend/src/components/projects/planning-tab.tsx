@@ -1,34 +1,32 @@
 'use client';
 
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
   CalendarClock,
-  CalendarRange,
   Check,
+  ListPlus,
   ListTodo,
   Pencil,
   Play,
   Plus,
   Trash2,
+  X,
 } from 'lucide-react';
 import * as React from 'react';
 import { toast } from 'sonner';
 
-import { PhaseFormDialog } from '@/components/projects/phase-dialog';
 import { SprintFormDialog } from '@/components/projects/sprint-dialog';
 import { StatusSelect } from '@/components/tasks/status-select';
 import { Button } from '@/components/ui/button';
 import { DeleteConfirmationDialog } from '@/components/ui/delete-confirmation-dialog';
-import { DataTable, Td, Th } from '@/components/ui/group-bar';
 import { EmptyState, Panel, PanelBody, PanelHeader, PanelTitle } from '@/components/ui/panel';
 import { StatusTint } from '@/components/ui/status-pill';
 import {
-  PHASE_STATUS_LABELS,
   SPRINT_STATUS_LABELS,
-  useDeletePhase,
   useDeleteSprint,
   useUpdateSprint,
+  useUpdateTask,
   type Project,
-  type ProjectPhase,
   type Sprint,
   type Task,
 } from '@/lib/api/projects';
@@ -50,12 +48,20 @@ function daysFromToday(value: string): number {
 }
 
 const SPRINT_TONES = { planned: 'hold', active: 'progress', completed: 'done' } as const;
-const PHASE_TONES = { planned: 'hold', active: 'progress', completed: 'done' } as const;
+
+const MENU_CLASS =
+  'z-50 max-h-72 w-72 overflow-y-auto rounded-[var(--radius-lg)] border border-[var(--color-line-subtle)] bg-[var(--color-panel)] p-1 shadow-[var(--shadow-popover)]';
+
+const MENU_ITEM_CLASS =
+  'flex w-full cursor-pointer items-center gap-2 rounded-[var(--radius-sm)] px-2.5 py-2 text-left text-[length:var(--text-sm)] outline-none data-[highlighted]:bg-[var(--color-panel-raised)]';
 
 /**
- * Planning surface of the project detail page: sprints with their tasks and
- * quick actions, the backlog, upcoming due dates, and phase management —
- * everything needed to see what has to be done by when.
+ * Planning surface of the project detail page.
+ *
+ * One planning concept on purpose: sprints. Tasks live either in a sprint or
+ * in the backlog, and moving them is a single click in both directions —
+ * the phase layer that used to sit next to this only split the same tasks a
+ * second way and confused more than it ordered.
  */
 export function ProjectPlanningTab({
   project,
@@ -70,18 +76,14 @@ export function ProjectPlanningTab({
   tasks: Task[];
   canEdit: boolean;
   onOpenTask: (taskId: string) => void;
-  onCreateTask: (defaults: { sprint?: string | null; phase?: string | null }) => void;
+  onCreateTask: (defaults: { sprint?: string | null }) => void;
 }) {
   const updateSprint = useUpdateSprint();
   const deleteSprint = useDeleteSprint();
-  const deletePhase = useDeletePhase();
 
   const [sprintDialogOpen, setSprintDialogOpen] = React.useState(false);
   const [sprintToEdit, setSprintToEdit] = React.useState<Sprint | undefined>(undefined);
   const [sprintToDelete, setSprintToDelete] = React.useState<Sprint | null>(null);
-  const [phaseDialogOpen, setPhaseDialogOpen] = React.useState(false);
-  const [phaseToEdit, setPhaseToEdit] = React.useState<ProjectPhase | undefined>(undefined);
-  const [phaseToDelete, setPhaseToDelete] = React.useState<ProjectPhase | null>(null);
 
   const topLevelTasks = React.useMemo(() => tasks.filter((task) => !task.archived), [tasks]);
 
@@ -103,13 +105,14 @@ export function ProjectPlanningTab({
     [topLevelTasks],
   );
 
+  const assignableSprints = React.useMemo(
+    () => sortedSprints.filter((sprint) => sprint.status !== 'completed'),
+    [sortedSprints],
+  );
+
   const openSprintDialog = (sprint?: Sprint) => {
     setSprintToEdit(sprint);
     setSprintDialogOpen(true);
-  };
-  const openPhaseDialog = (phase?: ProjectPhase) => {
-    setPhaseToEdit(phase);
-    setPhaseDialogOpen(true);
   };
 
   const setSprintStatus = (sprint: Sprint, status: Sprint['status'], message: string) =>
@@ -122,18 +125,23 @@ export function ProjectPlanningTab({
     );
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[1.4fr_1fr]">
+    <div className="grid gap-4 xl:grid-cols-[1.6fr_1fr]">
       <div className="space-y-4">
         <Panel>
           <PanelHeader>
-            <PanelTitle>Sprints</PanelTitle>
+            <div>
+              <PanelTitle>Sprints</PanelTitle>
+              <p className="mt-0.5 text-[length:var(--text-xs)] text-[var(--color-ink-subtle)]">
+                Aufgaben aus dem Backlog zuordnen — oder direkt im Sprint anlegen
+              </p>
+            </div>
             {canEdit ? (
-              <Button variant="secondary" size="xs" onClick={() => openSprintDialog(undefined)}>
+              <Button variant="primary" size="sm" onClick={() => openSprintDialog(undefined)}>
                 <Plus aria-hidden /> Neuer Sprint
               </Button>
             ) : null}
           </PanelHeader>
-          <PanelBody className="space-y-3">
+          <PanelBody className="space-y-4">
             {sortedSprints.length === 0 ? (
               <EmptyState
                 icon={<CalendarClock className="size-7" aria-hidden />}
@@ -153,6 +161,7 @@ export function ProjectPlanningTab({
                   key={sprint.id}
                   sprint={sprint}
                   tasks={topLevelTasks.filter((task) => task.sprint === sprint.id)}
+                  backlogTasks={backlogTasks}
                   canEdit={canEdit}
                   onOpenTask={onOpenTask}
                   onAddTask={() => onCreateTask({ sprint: sprint.id })}
@@ -167,7 +176,9 @@ export function ProjectPlanningTab({
             )}
           </PanelBody>
         </Panel>
+      </div>
 
+      <div className="space-y-4">
         <Panel>
           <PanelHeader>
             <PanelTitle>Backlog</PanelTitle>
@@ -197,97 +208,23 @@ export function ProjectPlanningTab({
           ) : (
             <PanelBody className="space-y-1">
               {backlogTasks.map((task) => (
-                <TaskRow key={task.id} task={task} canEdit={canEdit} onOpenTask={onOpenTask} />
+                <TaskRow
+                  key={task.id}
+                  task={task}
+                  canEdit={canEdit}
+                  onOpenTask={onOpenTask}
+                  action={
+                    canEdit && assignableSprints.length > 0 ? (
+                      <AssignToSprintMenu task={task} sprints={assignableSprints} />
+                    ) : null
+                  }
+                />
               ))}
             </PanelBody>
           )}
         </Panel>
-      </div>
 
-      <div className="space-y-4">
         <DueOverviewPanel tasks={topLevelTasks} onOpenTask={onOpenTask} />
-
-        <Panel>
-          <PanelHeader>
-            <PanelTitle>Phasen</PanelTitle>
-            {canEdit ? (
-              <Button variant="secondary" size="xs" onClick={() => openPhaseDialog(undefined)}>
-                <Plus aria-hidden /> Neue Phase
-              </Button>
-            ) : null}
-          </PanelHeader>
-          {project.phases.length === 0 ? (
-            <PanelBody>
-              <EmptyState
-                icon={<CalendarRange className="size-7" aria-hidden />}
-                title="Noch keine Phasen"
-                description="Phasen gliedern das Projekt in Abschnitte mit eigenem Zeitraum."
-              />
-            </PanelBody>
-          ) : (
-            <DataTable>
-              <thead>
-                <tr>
-                  <Th>Phase</Th>
-                  <Th>Status</Th>
-                  <Th>Zeitraum</Th>
-                  <Th className="text-right">Aufgaben</Th>
-                  {canEdit ? <Th className="w-16" aria-label="Aktionen" /> : null}
-                </tr>
-              </thead>
-              <tbody>
-                {[...project.phases]
-                  .sort((a, b) => a.order - b.order)
-                  .map((phase) => {
-                    const phaseTasks = topLevelTasks.filter((task) => task.phase === phase.id);
-                    const done = phaseTasks.filter((task) => task.status === 'done').length;
-                    return (
-                      <tr key={phase.id} className="last:[&>td]:border-b-0">
-                        <Td>
-                          <div className="font-medium">{phase.name}</div>
-                          {phase.planned_hours ? (
-                            <div className="text-[length:var(--text-2xs)] text-[var(--color-ink-subtle)]">
-                              {formatHours(phase.planned_hours)} geplant
-                            </div>
-                          ) : null}
-                        </Td>
-                        <Td>
-                          <StatusTint tone={PHASE_TONES[phase.status]}>
-                            {PHASE_STATUS_LABELS[phase.status]}
-                          </StatusTint>
-                        </Td>
-                        <Td className="text-[var(--color-ink-muted)]">
-                          {dateLabel(phase.start_date)} – {dateLabel(phase.end_date)}
-                        </Td>
-                        <Td className="tabular text-right text-[var(--color-ink-muted)]">
-                          {phaseTasks.length > 0 ? `${done}/${phaseTasks.length}` : '—'}
-                        </Td>
-                        {canEdit ? (
-                          <Td className="text-right">
-                            <div className="flex justify-end gap-1">
-                              <IconButton
-                                label={`Phase „${phase.name}“ bearbeiten`}
-                                onClick={() => openPhaseDialog(phase)}
-                              >
-                                <Pencil className="size-3.5" aria-hidden />
-                              </IconButton>
-                              <IconButton
-                                label={`Phase „${phase.name}“ löschen`}
-                                danger
-                                onClick={() => setPhaseToDelete(phase)}
-                              >
-                                <Trash2 className="size-3.5" aria-hidden />
-                              </IconButton>
-                            </div>
-                          </Td>
-                        ) : null}
-                      </tr>
-                    );
-                  })}
-              </tbody>
-            </DataTable>
-          )}
-        </Panel>
       </div>
 
       <SprintFormDialog
@@ -299,20 +236,6 @@ export function ProjectPlanningTab({
         projectId={project.id}
         boardId={project.default_board}
         sprint={sprintToEdit}
-      />
-      <PhaseFormDialog
-        open={phaseDialogOpen}
-        onOpenChange={(open) => {
-          setPhaseDialogOpen(open);
-          if (!open) setPhaseToEdit(undefined);
-        }}
-        projectId={project.id}
-        nextOrder={
-          project.phases.length > 0
-            ? Math.max(...project.phases.map((phase) => phase.order)) + 1
-            : 0
-        }
-        phase={phaseToEdit}
       />
       <DeleteConfirmationDialog
         open={Boolean(sprintToDelete)}
@@ -332,24 +255,6 @@ export function ProjectPlanningTab({
           });
         }}
       />
-      <DeleteConfirmationDialog
-        open={Boolean(phaseToDelete)}
-        onOpenChange={(open) => !open && setPhaseToDelete(null)}
-        title="Phase löschen?"
-        itemName={phaseToDelete?.name ?? ''}
-        message="Zugeordnete Aufgaben bleiben erhalten und verlieren nur die Phasenzuordnung."
-        isPending={deletePhase.isPending}
-        onConfirm={() => {
-          if (!phaseToDelete) return;
-          deletePhase.mutate(phaseToDelete.id, {
-            onSuccess: () => {
-              toast.success(`Phase „${phaseToDelete.name}“ gelöscht.`);
-              setPhaseToDelete(null);
-            },
-            onError: (error) => toast.error(error.message),
-          });
-        }}
-      />
     </div>
   );
 }
@@ -361,6 +266,7 @@ export function ProjectPlanningTab({
 function SprintCard({
   sprint,
   tasks,
+  backlogTasks,
   canEdit,
   onOpenTask,
   onAddTask,
@@ -371,6 +277,7 @@ function SprintCard({
 }: {
   sprint: Sprint;
   tasks: Task[];
+  backlogTasks: Task[];
   canEdit: boolean;
   onOpenTask: (taskId: string) => void;
   onAddTask: () => void;
@@ -379,21 +286,31 @@ function SprintCard({
   onStart: () => void;
   onComplete: () => void;
 }) {
+  const updateTask = useUpdateTask();
   const done = tasks.filter((task) => task.status === 'done').length;
   const total = tasks.length;
   const percent = total > 0 ? Math.round((done / total) * 100) : 0;
-  const openTasks = tasks.filter((task) => task.status !== 'done').sort(byDueDate);
+  const visibleTasks = [...tasks].sort(byDueDate);
   const estimated = tasks.reduce(
     (sum, task) => sum + (task.estimated_hours ? Number(task.estimated_hours) : 0),
     0,
   );
 
+  const removeFromSprint = (task: Task) =>
+    updateTask.mutate(
+      { id: task.id, sprint: null },
+      {
+        onSuccess: () => toast.success(`„${task.title}“ zurück in den Backlog.`),
+        onError: (error) => toast.error(error.message),
+      },
+    );
+
   return (
-    <div className="rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-panel-sunken)] p-3">
+    <div className="rounded-[var(--radius-lg)] border border-[var(--color-line-subtle)] bg-[var(--color-panel-sunken)] p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-medium">{sprint.name}</span>
+            <span className="text-[length:var(--text-base)] font-semibold">{sprint.name}</span>
             <StatusTint tone={SPRINT_TONES[sprint.status]}>
               {SPRINT_STATUS_LABELS[sprint.status]}
             </StatusTint>
@@ -438,7 +355,7 @@ function SprintCard({
       </div>
 
       {total > 0 ? (
-        <div className="mt-2">
+        <div className="mt-3">
           <div className="mb-1 flex items-baseline justify-between text-[length:var(--text-2xs)] text-[var(--color-ink-subtle)]">
             <span>
               {done}/{total} Aufgaben erledigt
@@ -454,28 +371,149 @@ function SprintCard({
         </div>
       ) : null}
 
-      {openTasks.length > 0 ? (
-        <ul className="mt-2 space-y-1">
-          {openTasks.map((task) => (
-            <TaskRow key={task.id} task={task} canEdit={canEdit} onOpenTask={onOpenTask} />
+      {visibleTasks.length > 0 ? (
+        <ul className="mt-3 space-y-1">
+          {visibleTasks.map((task) => (
+            <TaskRow
+              key={task.id}
+              task={task}
+              canEdit={canEdit}
+              onOpenTask={onOpenTask}
+              muted={task.status === 'done'}
+              action={
+                canEdit && sprint.status !== 'completed' ? (
+                  <IconButton
+                    label={`„${task.title}“ aus dem Sprint entfernen`}
+                    onClick={() => removeFromSprint(task)}
+                  >
+                    <X className="size-3.5" aria-hidden />
+                  </IconButton>
+                ) : null
+              }
+            />
           ))}
         </ul>
-      ) : total > 0 ? (
-        <p className="mt-2 text-[length:var(--text-xs)] text-[var(--color-ink-subtle)]">
-          Alle Aufgaben dieses Sprints sind erledigt.
-        </p>
       ) : (
-        <p className="mt-2 text-[length:var(--text-xs)] text-[var(--color-ink-subtle)]">
-          Noch keine Aufgaben zugeordnet.
+        <p className="mt-3 text-[length:var(--text-xs)] text-[var(--color-ink-subtle)]">
+          Noch keine Aufgaben zugeordnet — unten aus dem Backlog wählen.
         </p>
       )}
 
       {canEdit && sprint.status !== 'completed' ? (
-        <Button variant="ghost" size="xs" className="mt-2" onClick={onAddTask}>
-          <Plus aria-hidden /> Aufgabe hinzufügen
-        </Button>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <AssignFromBacklogMenu
+            sprint={sprint}
+            backlogTasks={backlogTasks}
+            onAssign={(task) =>
+              updateTask.mutate(
+                { id: task.id, sprint: sprint.id },
+                {
+                  onSuccess: () => toast.success(`„${task.title}“ dem Sprint zugeordnet.`),
+                  onError: (error) => toast.error(error.message),
+                },
+              )
+            }
+          />
+          <Button variant="ghost" size="xs" onClick={onAddTask}>
+            <Plus aria-hidden /> Neue Aufgabe
+          </Button>
+        </div>
       ) : null}
     </div>
+  );
+}
+
+/** Plus-dropdown on a sprint: pull existing backlog tasks into the sprint. */
+function AssignFromBacklogMenu({
+  sprint,
+  backlogTasks,
+  onAssign,
+}: {
+  sprint: Sprint;
+  backlogTasks: Task[];
+  onAssign: (task: Task) => void;
+}) {
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <Button variant="secondary" size="xs">
+          <ListPlus aria-hidden /> Aufgabe zuordnen
+        </Button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content align="start" sideOffset={6} className={MENU_CLASS}>
+          <div className="px-2.5 pt-1.5 pb-1 text-[length:var(--text-2xs)] font-semibold tracking-wider text-[var(--color-ink-subtle)] uppercase">
+            Backlog → {sprint.name}
+          </div>
+          {backlogTasks.length === 0 ? (
+            <div className="px-2.5 py-3 text-[length:var(--text-xs)] text-[var(--color-ink-subtle)]">
+              Der Backlog ist leer — alle offenen Aufgaben sind bereits zugeordnet.
+            </div>
+          ) : (
+            backlogTasks.map((task) => (
+              <DropdownMenu.Item
+                key={task.id}
+                className={MENU_ITEM_CLASS}
+                onSelect={() => onAssign(task)}
+              >
+                <span className="min-w-0 flex-1 truncate">{task.title}</span>
+                {task.due_date ? (
+                  <span className="tabular shrink-0 text-[length:var(--text-2xs)] text-[var(--color-ink-subtle)]">
+                    {dateLabel(task.due_date)}
+                  </span>
+                ) : null}
+              </DropdownMenu.Item>
+            ))
+          )}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  );
+}
+
+/** Arrow-dropdown on a backlog row: send the task into a sprint. */
+function AssignToSprintMenu({ task, sprints }: { task: Task; sprints: Sprint[] }) {
+  const updateTask = useUpdateTask();
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <button
+          type="button"
+          aria-label={`„${task.title}“ einem Sprint zuordnen`}
+          title="Einem Sprint zuordnen"
+          className="rounded-full p-1 text-[var(--color-ink-subtle)] transition-colors hover:bg-[var(--color-brand-subtle)] hover:text-[var(--color-brand)]"
+        >
+          <ListPlus className="size-3.5" aria-hidden />
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content align="end" sideOffset={6} className={MENU_CLASS}>
+          <div className="px-2.5 pt-1.5 pb-1 text-[length:var(--text-2xs)] font-semibold tracking-wider text-[var(--color-ink-subtle)] uppercase">
+            Sprint wählen
+          </div>
+          {sprints.map((sprint) => (
+            <DropdownMenu.Item
+              key={sprint.id}
+              className={MENU_ITEM_CLASS}
+              onSelect={() =>
+                updateTask.mutate(
+                  { id: task.id, sprint: sprint.id },
+                  {
+                    onSuccess: () => toast.success(`„${task.title}“ → „${sprint.name}“.`),
+                    onError: (error) => toast.error(error.message),
+                  },
+                )
+              }
+            >
+              <span className="min-w-0 flex-1 truncate">{sprint.name}</span>
+              <StatusTint tone={SPRINT_TONES[sprint.status]}>
+                {SPRINT_STATUS_LABELS[sprint.status]}
+              </StatusTint>
+            </DropdownMenu.Item>
+          ))}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
   );
 }
 
@@ -520,26 +558,34 @@ function TaskRow({
   task,
   canEdit,
   onOpenTask,
+  action,
+  muted = false,
 }: {
   task: Task;
   canEdit: boolean;
   onOpenTask: (taskId: string) => void;
+  action?: React.ReactNode;
+  muted?: boolean;
 }) {
   const overdue = task.due_date !== null && daysFromToday(task.due_date) < 0;
   return (
-    <li className="flex items-center gap-2 rounded-[var(--radius-xs)] bg-[var(--color-panel)] px-2 py-1.5">
+    <li className="flex items-center gap-2 rounded-[var(--radius-md)] bg-[var(--color-panel)] px-2.5 py-1.5 shadow-[var(--shadow-panel)]">
       <StatusSelect taskId={task.id} status={task.status} disabled={!canEdit} compact />
       <button
         type="button"
         onClick={() => onOpenTask(task.id)}
-        className="min-w-0 flex-1 truncate text-left text-[length:var(--text-sm)] hover:text-[var(--color-brand)]"
+        className={
+          muted
+            ? 'min-w-0 flex-1 truncate text-left text-[length:var(--text-sm)] text-[var(--color-ink-subtle)] line-through hover:text-[var(--color-brand)]'
+            : 'min-w-0 flex-1 truncate text-left text-[length:var(--text-sm)] hover:text-[var(--color-brand)]'
+        }
       >
         {task.title}
       </button>
       {task.due_date ? (
         <span
           className={
-            overdue
+            overdue && !muted
               ? 'tabular text-[length:var(--text-2xs)] font-medium text-[var(--color-danger)]'
               : 'tabular text-[length:var(--text-2xs)] text-[var(--color-ink-subtle)]'
           }
@@ -547,6 +593,7 @@ function TaskRow({
           {dateLabel(task.due_date)}
         </span>
       ) : null}
+      {action}
     </li>
   );
 }
@@ -682,8 +729,8 @@ function IconButton({
       title={label}
       className={
         danger
-          ? 'rounded p-1 text-[var(--color-ink-subtle)] transition-colors hover:bg-[var(--color-danger)]/10 hover:text-[var(--color-danger)]'
-          : 'rounded p-1 text-[var(--color-ink-subtle)] transition-colors hover:bg-[var(--color-panel-raised)] hover:text-[var(--color-ink)]'
+          ? 'rounded-full p-1 text-[var(--color-ink-subtle)] transition-colors hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)]'
+          : 'rounded-full p-1 text-[var(--color-ink-subtle)] transition-colors hover:bg-[var(--color-panel-raised)] hover:text-[var(--color-ink)]'
       }
     >
       {children}

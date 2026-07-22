@@ -1,10 +1,11 @@
 'use client';
 
-import { Plus, Receipt } from 'lucide-react';
+import { FileText, HandCoins, Plus, Receipt } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import * as React from 'react';
 
 import { PageHeader } from '@/components/layout/app-shell';
+import { AssignProjectToInvoiceMenu } from '@/components/invoices/assign-invoice-menu';
 import { CreateInvoiceDialog } from '@/components/invoices/create-invoice-dialog';
 import { InvoiceStatusBadge } from '@/components/invoices/invoice-status-badge';
 import { Button } from '@/components/ui/button';
@@ -67,15 +68,24 @@ export default function InvoicesPage() {
       <div className="space-y-4 p-5">
         <div className="grid gap-3 sm:grid-cols-3">
           <StatTile
+            icon={<Receipt />}
             label="Offene Forderungen"
             value={formatMoney(openTotal.toFixed(2))}
             tone={openTotal > 0 ? 'warning' : 'default'}
+            hint="Versendet, noch nicht bezahlt"
           />
-          <StatTile label="Entwürfe" value={formatMoney(draftTotal.toFixed(2))} />
           <StatTile
+            icon={<FileText />}
+            label="Entwürfe"
+            value={formatMoney(draftTotal.toFixed(2))}
+            hint="Noch nicht versendet"
+          />
+          <StatTile
+            icon={<HandCoins />}
             label="Bezahlt (Jahr)"
             value={formatMoney(paidThisYear.toFixed(2))}
             tone={paidThisYear > 0 ? 'success' : 'default'}
+            hint="Zahlungseingänge dieses Jahr"
           />
         </div>
 
@@ -107,6 +117,7 @@ export default function InvoicesPage() {
                   <tr>
                     <Th>Nummer / Entwurf</Th>
                     <Th>Kunde</Th>
+                    <Th>Projekt</Th>
                     <Th>Status</Th>
                     <Th>Datum</Th>
                     <Th className="text-right">Netto</Th>
@@ -119,6 +130,7 @@ export default function InvoicesPage() {
                     <InvoiceRow
                       key={invoice.id}
                       invoice={invoice}
+                      canAssign={permissions.can_write}
                       onOpen={() => router.push(`/invoices/${invoice.id}`)}
                     />
                   ))}
@@ -134,13 +146,62 @@ export default function InvoicesPage() {
   );
 }
 
-function InvoiceRow({ invoice, onOpen }: { invoice: InvoiceListItem; onOpen: () => void }) {
+function InvoiceRow({
+  invoice,
+  canAssign,
+  onOpen,
+}: {
+  invoice: InvoiceListItem;
+  canAssign: boolean;
+  onOpen: () => void;
+}) {
   return (
     <ClickableRow onClick={onOpen} tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && onOpen()}>
       <Td className="font-medium">
         {invoice.invoice_number || `Entwurf ${invoice.id.slice(0, 8)}`}
       </Td>
       <Td className="text-[var(--color-ink-muted)]">{invoice.client_name}</Td>
+      <Td>
+        {/* The menu lives inside a clickable row — keep its clicks local. */}
+        <span onClick={(event) => event.stopPropagation()}>
+          {invoice.project ? (
+            canAssign ? (
+              <AssignProjectToInvoiceMenu
+                invoiceId={invoice.id}
+                clientId={invoice.client}
+                currentProjectId={invoice.project}
+                trigger={
+                  <button
+                    type="button"
+                    className="max-w-40 truncate text-left text-[var(--color-brand)] hover:underline"
+                    title="Projektzuordnung ändern"
+                  >
+                    {invoice.project_name}
+                  </button>
+                }
+              />
+            ) : (
+              <span className="max-w-40 truncate">{invoice.project_name}</span>
+            )
+          ) : canAssign ? (
+            <AssignProjectToInvoiceMenu
+              invoiceId={invoice.id}
+              clientId={invoice.client}
+              currentProjectId={null}
+              trigger={
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 rounded-full border border-dashed border-[var(--color-line-strong)] px-2 py-0.5 text-[length:var(--text-2xs)] text-[var(--color-ink-subtle)] transition-colors hover:border-[var(--color-brand)] hover:text-[var(--color-brand)]"
+                >
+                  <Plus className="size-3" aria-hidden /> Zuordnen
+                </button>
+              }
+            />
+          ) : (
+            <span className="text-[var(--color-ink-subtle)]">—</span>
+          )}
+        </span>
+      </Td>
       <Td>
         <InvoiceStatusBadge status={invoice.status} />
       </Td>

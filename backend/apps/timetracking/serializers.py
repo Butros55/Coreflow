@@ -62,6 +62,10 @@ class TimeEntrySerializer(WorkspaceScopedSerializer):
     # including whether the link came from the local composer or was matched
     # by the Lexware import.
     invoice_link = serializers.SerializerMethodField()
+    # Which external systems this entry exists in: "lexware" (imported or
+    # matched by the Lexware import) and/or "clockify" (linked twin). One entry
+    # can carry both — that is the dedup contract, not a bug.
+    integration_tags = serializers.SerializerMethodField()
     # Optional convenience on create: duration instead of ended_at.
     duration_input_seconds = serializers.IntegerField(write_only=True, required=False, min_value=60)
 
@@ -92,6 +96,7 @@ class TimeEntrySerializer(WorkspaceScopedSerializer):
             "rounded_from_seconds",
             "is_running",
             "invoice_link",
+            "integration_tags",
             "created_at",
             "updated_at",
         ]
@@ -103,6 +108,7 @@ class TimeEntrySerializer(WorkspaceScopedSerializer):
             "computed_amount",
             "rounded_from_seconds",
             "invoice_link",
+            "integration_tags",
             "created_at",
             "updated_at",
         ]
@@ -112,11 +118,7 @@ class TimeEntrySerializer(WorkspaceScopedSerializer):
         }
 
     def get_invoice_link(self, obj: TimeEntry) -> dict[str, Any] | None:
-        links = getattr(obj, "active_invoice_links", None)
-        if links is None:  # list views prefetch; single-object paths fall back
-            links = list(
-                obj.invoice_links.filter(invoice_cancelled=False).select_related("invoice")
-            )
+        links = self._active_invoice_links(obj)
         if not links:
             return None
         link = links[0]
@@ -125,6 +127,40 @@ class TimeEntrySerializer(WorkspaceScopedSerializer):
             "invoice_number": link.invoice.invoice_number,
             "source": link.source,
         }
+
+    @staticmethod
+    def _active_invoice_links(obj: TimeEntry) -> list[Any]:
+        links = getattr(obj, "active_invoice_links", None)
+        if links is None:  # list views prefetch; single-object paths fall back
+            links = list(
+                obj.invoice_links.filter(invoice_cancelled=False).select_related("invoice")
+            )
+        return list(links)
+
+    def get_integration_tags(self, obj: TimeEntry) -> list[str]:
+        from apps.invoicing.models import InvoiceLinkSource
+
+        tags: list[str] = []
+        if obj.source == EntrySource.LEXWARE or any(
+            link.source == InvoiceLinkSource.LEXWARE_IMPORT
+            for link in self._active_invoice_links(obj)
+        ):
+            tags.append("lexware")
+
+        linked = getattr(obj, "has_clockify_link", None)
+        if linked is None:  # non-annotated paths (e.g. timer stop) fall back
+            from apps.integrations.models import ExternalObjectLink, Provider
+
+            linked = ExternalObjectLink.objects.filter(
+                workspace=obj.workspace_id,
+                provider=Provider.CLOCKIFY,
+                resource_type="entry",
+                local_object_id=obj.pk,
+                deleted_remotely=False,
+            ).exists()
+        if linked:
+            tags.append("clockify")
+        return tags
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         instance: TimeEntry | None = self.instance

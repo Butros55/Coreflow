@@ -63,6 +63,7 @@ export interface InvoiceListItem {
   client: string;
   client_name: string;
   project: string | null;
+  project_name: string | null;
   status: InvoiceStatus;
   status_display: string;
   invoice_number: string;
@@ -92,6 +93,8 @@ export interface Invoice extends InvoiceListItem {
   lines: InvoiceLine[];
   is_editable: boolean;
   entry_count: number;
+  /** Permalink into the Lexware web app; null until the invoice exists there. */
+  lexware_url: string | null;
   updated_at: string;
 }
 
@@ -117,7 +120,8 @@ export interface OpenEntriesClient {
 // ---------------------------------------------------------------------------
 
 export function useInvoices(
-  params: { client?: string; project?: string; status?: InvoiceStatus } = {},
+  params: { client?: string; project?: string; status?: InvoiceStatus; unassigned?: boolean } = {},
+  options: { enabled?: boolean } = {},
 ) {
   return useQuery({
     queryKey: ['invoices', params],
@@ -125,6 +129,7 @@ export function useInvoices(
       api.get<Paginated<InvoiceListItem>>('/invoices/', {
         query: { ...params, page_size: 100 },
       }),
+    enabled: options.enabled ?? true,
   });
 }
 
@@ -232,5 +237,23 @@ export function useCancelInvoice() {
   return useMutation({
     mutationFn: (id: string) => api.delete<void>(`/invoices/${id}/`),
     onSuccess: () => invalidateInvoiceWorld(queryClient),
+  });
+}
+
+/** Set or clear the invoice's project — works on sent invoices too. */
+export function useAssignInvoiceProject() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ invoiceId, projectId }: { invoiceId: string; projectId: string | null }) =>
+      api.post<Invoice>(`/invoices/${invoiceId}/assign-project/`, { project: projectId }),
+    onSuccess: (invoice) => {
+      queryClient.setQueryData(['invoice', invoice.id], invoice);
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      // Project billing stats include invoice aggregates, and the billed time
+      // entries move into (or out of) the project with the assignment.
+      queryClient.invalidateQueries({ queryKey: ['project'] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['time-entries'] });
+    },
   });
 }

@@ -5,7 +5,7 @@ export interface ReadinessResponse {
   checks: {
     database: { status: string; latency_ms?: number; error?: string };
     cache: { status: string; latency_ms?: number; error?: string };
-    integrations: { lexware: 'enabled' | 'disabled'; clockodo: 'enabled' | 'disabled' };
+    integrations: { lexware: 'enabled' | 'disabled'; clockify: 'enabled' | 'disabled' };
   };
 }
 

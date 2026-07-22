@@ -152,11 +152,15 @@ export function CreateInvoiceDialog({
                   value={grouping}
                   onChange={(event) => setGrouping(event.target.value as InvoiceGrouping)}
                 >
-                  {Object.entries(GROUPING_LABELS).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
+                  {/* per_phase stays valid for legacy invoices but is no longer
+                      offered — planning works with sprints, not phases. */}
+                  {Object.entries(GROUPING_LABELS)
+                    .filter(([value]) => value !== 'per_phase')
+                    .map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
                 </Select>
               </div>
             </div>

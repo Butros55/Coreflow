@@ -57,7 +57,7 @@ class TestReadiness:
         integrations = response.data["checks"]["integrations"]
         # Test settings force both off.
         assert integrations["lexware"] == "disabled"
-        assert integrations["clockodo"] == "disabled"
+        assert integrations["clockify"] == "disabled"
 
     def test_readiness_returns_503_when_the_database_is_down(self, api_client: APIClient) -> None:
         with patch("apps.core.health.connections") as mock_conn:

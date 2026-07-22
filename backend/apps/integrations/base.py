@@ -189,8 +189,8 @@ class BaseHTTPClient:
             self._sleep_backoff(attempt, response)
 
     def _sleep_backoff(self, attempt: int, response: httpx.Response | None = None) -> None:
-        # Honour Retry-After when present (Clockodo), else exponential backoff
-        # with a cap (Lexware documents no Retry-After at all).
+        # Honour Retry-After when present (Clockify sends it on 429), else
+        # exponential backoff with a cap (Lexware documents no Retry-After).
         retry_after = None
         if response is not None:
             header = response.headers.get("Retry-After")

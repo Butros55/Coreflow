@@ -55,6 +55,7 @@ class InvoiceLineSerializer(WorkspaceScopedSerializer):
 
 class InvoiceListSerializer(WorkspaceScopedSerializer):
     client_name = serializers.CharField(source="client.display_name", read_only=True)
+    project_name = serializers.CharField(source="project.name", read_only=True, default=None)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
 
     class Meta:
@@ -64,6 +65,7 @@ class InvoiceListSerializer(WorkspaceScopedSerializer):
             "client",
             "client_name",
             "project",
+            "project_name",
             "status",
             "status_display",
             "invoice_number",
@@ -83,10 +85,12 @@ class InvoiceListSerializer(WorkspaceScopedSerializer):
 
 class InvoiceDetailSerializer(WorkspaceScopedSerializer):
     client_name = serializers.CharField(source="client.display_name", read_only=True)
+    project_name = serializers.CharField(source="project.name", read_only=True, default=None)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     lines = InvoiceLineSerializer(many=True, read_only=True)
     is_editable = serializers.BooleanField(read_only=True)
     entry_count = serializers.SerializerMethodField()
+    lexware_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Invoice
@@ -95,6 +99,7 @@ class InvoiceDetailSerializer(WorkspaceScopedSerializer):
             "client",
             "client_name",
             "project",
+            "project_name",
             "status",
             "status_display",
             "invoice_number",
@@ -120,6 +125,7 @@ class InvoiceDetailSerializer(WorkspaceScopedSerializer):
             "lines",
             "is_editable",
             "entry_count",
+            "lexware_url",
             "created_at",
             "updated_at",
         ]
@@ -140,6 +146,31 @@ class InvoiceDetailSerializer(WorkspaceScopedSerializer):
 
     def get_entry_count(self, obj: Invoice) -> int:
         return obj.invoice_time_entries.count()
+
+    def get_lexware_url(self, obj: Invoice) -> str | None:
+        """Permalink into the Lexware web app, once the invoice exists there.
+
+        Drafts have no API-renderable PDF (the API answers 406 by design), so
+        the UI links the user straight to the voucher instead. Drafts open in
+        the editor, finalised invoices in the read view.
+        """
+        from django.conf import settings
+
+        from apps.integrations.models import ExternalObjectLink, Provider
+        from apps.invoicing.models import InvoiceStatus
+
+        link = ExternalObjectLink.objects.filter(
+            workspace=obj.workspace,
+            provider=Provider.LEXWARE,
+            resource_type="invoice",
+            local_object_id=obj.pk,
+        ).first()
+        if link is None:
+            return None
+        drafts = (InvoiceStatus.DRAFT_REMOTE, InvoiceStatus.SEND_PENDING)
+        mode = "edit" if obj.status in drafts else "view"
+        base = settings.LEXWARE_APP_BASE_URL.rstrip("/")
+        return f"{base}/permalink/invoices/{mode}/{link.external_id}"
 
 
 class ComposeInvoiceSerializer(serializers.Serializer[dict[str, Any]]):

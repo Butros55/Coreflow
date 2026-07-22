@@ -60,6 +60,9 @@ export interface ReserveForecast {
   safety_buffer?: string;
   recommended_reserve?: string;
   existing_reserve?: string;
+  reserve_opening?: string;
+  reserve_transfers_total?: string;
+  last_transfer_date?: string | null;
   prepayments_made?: string;
   reserve_gap?: string;
   trace?: TraceStep[];
@@ -111,6 +114,119 @@ export function useReserveScenario() {
   return useMutation({
     mutationFn: (input: { year?: number; annual_profit: number }) =>
       api.post<ReserveForecast>('/finance/reserve', input),
+  });
+}
+
+export interface ReportMonth {
+  month: string;
+  invoiced_net: string;
+  paid_net: string;
+  seconds: number;
+  billable_seconds: number;
+}
+
+export interface ReportClient {
+  id: string;
+  name: string;
+  invoiced_net: string;
+  open_gross: string;
+  seconds: number;
+  effective_rate: string | null;
+  share: number;
+}
+
+export interface ReportService {
+  name: string;
+  value: string;
+  seconds: number;
+}
+
+export interface ReportProject {
+  id: string;
+  name: string;
+  client_name: string;
+  seconds: number;
+  budget_hours: string | null;
+  budget_used_share: number | null;
+  value: string;
+  unbilled_value: string;
+  invoiced_net: string;
+}
+
+export interface BusinessReport {
+  year: number;
+  generated_at: string;
+  months: ReportMonth[];
+  kpis: {
+    revenue_ytd: string;
+    revenue_month: string;
+    revenue_quarter: string;
+    avg_monthly_revenue: string;
+    effective_hourly_rate: string | null;
+    billable_share_90d: number | null;
+    avg_days_to_pay: number | null;
+    open_receivables: string;
+    overdue_receivables: string;
+    unbilled_value: string;
+    unbilled_seconds: number;
+    draft_total: string;
+    active_clients_90d: number;
+    total_clients: number;
+    active_projects: number;
+  };
+  clients: ReportClient[];
+  services: ReportService[];
+  projects: ReportProject[];
+  concentration: { client_name: string; share: number } | null;
+}
+
+export function useBusinessReport() {
+  return useQuery({
+    queryKey: ['business-report'],
+    queryFn: () => api.get<BusinessReport>('/finance/report'),
+  });
+}
+
+export interface ReserveTransfer {
+  id: string;
+  transfer_date: string;
+  amount: string;
+  note: string;
+  source: 'manual' | 'lexware';
+  source_display: string;
+  created_at: string;
+}
+
+export function useReserveTransfers() {
+  return useQuery({
+    queryKey: ['reserve-transfers'],
+    queryFn: () =>
+      api.get<{ count: number; results: ReserveTransfer[] }>('/reserve-transfers/', {
+        query: { page_size: 50 },
+      }),
+  });
+}
+
+export function useCreateReserveTransfer() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { transfer_date: string; amount: string; note?: string }) =>
+      api.post<ReserveTransfer>('/reserve-transfers/', payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['reserve-transfers'] });
+      queryClient.invalidateQueries({ queryKey: ['reserve'] });
+    },
+  });
+}
+
+export function useDeleteReserveTransfer() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete<void>(`/reserve-transfers/${id}/`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['reserve-transfers'] });
+      queryClient.invalidateQueries({ queryKey: ['reserve'] });
+    },
   });
 }
 

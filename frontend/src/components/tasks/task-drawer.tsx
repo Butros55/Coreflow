@@ -3,6 +3,7 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Check, CornerDownRight, Loader2, Play, Plus, Trash2, UserPlus, X } from 'lucide-react';
 import * as React from 'react';
+import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 
 import { STATUS_TONES, StatusSelect } from '@/components/tasks/status-select';
@@ -20,7 +21,6 @@ import {
   useCreateTask,
   useDeleteComment,
   useDeleteTask,
-  useProject,
   useSprints,
   useTask,
   useTaskComments,
@@ -188,12 +188,6 @@ export function TaskDrawer({
                 disabled={!canEdit}
                 onChange={(sprint) => patch({ sprint })}
               />
-              <PhaseField
-                projectId={task.project}
-                value={task.phase}
-                disabled={!canEdit}
-                onChange={(phase) => patch({ phase })}
-              />
               <div className="col-span-2">
                 <AssigneeField
                   selected={task.assignees}
@@ -259,6 +253,76 @@ export function TaskDrawer({
         </>
       )}
     </aside>
+  );
+}
+
+/**
+ * The task drawer as a floating, animated right-side overlay.
+ *
+ * The board embeds `TaskDrawer` inline as a persistent side panel; pages that
+ * only occasionally need it (the project detail tabs) use this instead — it
+ * slides in over the content with a click-to-close scrim, and stays mounted
+ * through its exit animation so closing is animated too. Drive it by passing a
+ * task id or null; render it once, unconditionally.
+ */
+export function TaskDrawerOverlay({
+  taskId,
+  onClose,
+  onOpenTask,
+}: {
+  taskId: string | null;
+  onClose: () => void;
+  onOpenTask: (taskId: string) => void;
+}) {
+  // Keep the last id mounted while the exit animation plays out. Adopting a
+  // newly opened task during render (guarded so it runs once and never loops)
+  // is React's blessed props→state derivation — no synchronising effect.
+  const [renderId, setRenderId] = React.useState<string | null>(taskId);
+  if (taskId && taskId !== renderId) setRenderId(taskId);
+
+  // taskId cleared but a panel is still on screen ⇒ animate it out.
+  const closing = taskId === null && renderId !== null;
+
+  // Lock body scroll while visible — the panel scrolls itself.
+  React.useEffect(() => {
+    if (renderId === null) return undefined;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [renderId]);
+
+  if (renderId === null || typeof document === 'undefined') return null;
+
+  // Unmount only once the wrapper's OWN exit animation finishes — guarding on
+  // currentTarget keeps bubbled child animations from tripping it early.
+  const onAnimationEnd = (event: React.AnimationEvent<HTMLDivElement>) => {
+    if (closing && event.target === event.currentTarget) setRenderId(null);
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <button
+        type="button"
+        aria-label="Aufgabendetails schließen"
+        onClick={onClose}
+        className={cn(
+          'absolute inset-0 cursor-default bg-black/30 backdrop-blur-[2px]',
+          closing ? 'animate-overlay-out' : 'animate-overlay-in',
+        )}
+      />
+      <div
+        onAnimationEnd={onAnimationEnd}
+        className={cn(
+          'relative h-full w-[var(--spacing-drawer)] max-w-full',
+          closing ? 'animate-drawer-out' : 'animate-drawer-in',
+        )}
+      >
+        <TaskDrawer taskId={renderId} onClose={onClose} onOpenTask={onOpenTask} />
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -388,7 +452,6 @@ function SubtasksSection({
         project: task.project,
         board: task.board,
         sprint: task.sprint,
-        phase: task.phase,
         parent: task.id,
         priority: task.priority,
         billable: task.billable,
@@ -539,42 +602,6 @@ function SprintField({
             {sprint.name}
           </option>
         ))}
-      </Select>
-    </div>
-  );
-}
-
-function PhaseField({
-  projectId,
-  value,
-  onChange,
-  disabled,
-}: {
-  projectId: string;
-  value: string | null;
-  onChange: (phase: string | null) => void;
-  disabled: boolean;
-}) {
-  const { data: project } = useProject(projectId);
-  const phases = project?.phases ?? [];
-  if (phases.length === 0) return null;
-  return (
-    <div>
-      <Label htmlFor="drawer-phase">Phase</Label>
-      <Select
-        id="drawer-phase"
-        value={value ?? ''}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.value || null)}
-      >
-        <option value="">Keine Phase</option>
-        {[...phases]
-          .sort((a, b) => a.order - b.order)
-          .map((phase) => (
-            <option key={phase.id} value={phase.id}>
-              {phase.name}
-            </option>
-          ))}
       </Select>
     </div>
   );

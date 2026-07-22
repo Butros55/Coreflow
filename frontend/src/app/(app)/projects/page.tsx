@@ -1,6 +1,6 @@
 'use client';
 
-import { FolderKanban, Plus, Search, Trash2 } from 'lucide-react';
+import { BadgeEuro, FolderKanban, ListChecks, Plus, Search, Timer, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import * as React from 'react';
 import { toast } from 'sonner';
@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { DeleteConfirmationDialog } from '@/components/ui/delete-confirmation-dialog';
 import { ClickableRow, DataTable, GroupSection, Td, Th } from '@/components/ui/group-bar';
 import { Input } from '@/components/ui/input';
-import { EmptyState } from '@/components/ui/panel';
+import { EmptyState, StatTile } from '@/components/ui/panel';
 import { PriorityPill } from '@/components/ui/status-pill';
 import {
   PRIORITY_LABELS,
@@ -22,7 +22,7 @@ import {
   type ProjectStatus,
 } from '@/lib/api/projects';
 import { usePermissions } from '@/lib/session';
-import { formatHours } from '@/lib/utils';
+import { formatHours, formatMoney } from '@/lib/utils';
 
 const GROUPS: { status: ProjectStatus; color: string }[] = [
   { status: 'active', color: 'var(--color-status-done)' },
@@ -46,6 +46,16 @@ export default function ProjectsPage() {
     ...group,
     projects: projects.filter((project) => project.status === group.status && !project.archived),
   })).filter((group) => group.projects.length > 0);
+
+  const visible = projects.filter((project) => !project.archived);
+  const activeCount = visible.filter((project) => project.status === 'active').length;
+  const openTasks = visible.reduce((sum, project) => sum + project.stats.tasks.open, 0);
+  const overdueTasks = visible.reduce((sum, project) => sum + project.stats.tasks.overdue, 0);
+  const loggedSeconds = visible.reduce((sum, project) => sum + project.stats.logged_seconds, 0);
+  const unbilledValue = visible.reduce(
+    (sum, project) => sum + Number(project.stats.time.unbilled_value),
+    0,
+  );
 
   return (
     <>
@@ -77,7 +87,38 @@ export default function ProjectsPage() {
         </div>
       </PageHeader>
 
-      <div className="p-5">
+      <div className="space-y-4 p-5">
+        {!isLoading && visible.length > 0 && !search ? (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <StatTile
+              icon={<FolderKanban />}
+              label="Aktive Projekte"
+              value={activeCount}
+              hint={`${visible.length} gesamt`}
+            />
+            <StatTile
+              icon={<ListChecks />}
+              label="Offene Aufgaben"
+              value={openTasks}
+              hint={overdueTasks > 0 ? `${overdueTasks} überfällig` : 'Nichts überfällig'}
+              tone={overdueTasks > 0 ? 'danger' : 'default'}
+            />
+            <StatTile
+              icon={<Timer />}
+              label="Erfasste Zeit"
+              value={loggedSeconds > 0 ? formatHours(loggedSeconds / 3600) : '—'}
+              hint="Über alle Projekte"
+            />
+            <StatTile
+              icon={<BadgeEuro />}
+              label="Nicht abgerechnet"
+              value={formatMoney(unbilledValue.toFixed(2))}
+              tone={unbilledValue > 0 ? 'warning' : 'default'}
+              hint="Offene abrechenbare Zeiten"
+            />
+          </div>
+        ) : null}
+
         {isLoading ? (
           <p className="text-[length:var(--text-sm)] text-[var(--color-ink-muted)]">Lädt…</p>
         ) : groups.length === 0 ? (

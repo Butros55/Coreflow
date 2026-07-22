@@ -62,6 +62,9 @@ class InvoiceViewSet(WorkspaceScopedViewSet):
                 Q(project_id=project_id)
                 | Q(invoice_time_entries__time_entry__project_id=project_id)
             ).distinct()
+        # ?unassigned=true → invoices without a project, the quick-assign pool.
+        if self.request.query_params.get("unassigned") in ("true", "1"):
+            queryset = queryset.filter(project__isnull=True)
         return queryset
 
     def get_serializer_class(self) -> type[Any]:
@@ -205,6 +208,86 @@ class InvoiceViewSet(WorkspaceScopedViewSet):
         )
         return Response(status=http_status.HTTP_204_NO_CONTENT)
 
+    @action(detail=True, methods=["post"], url_path="assign-project")
+    def assign_project(self, request: Request, pk: str | None = None) -> Response:
+        """Set (or clear) the invoice's project — and move its hours with it.
+
+        Deliberately independent of ``is_editable``: the project link is local
+        organisation, not part of the frozen Lexware document, so it may change
+        on sent and paid invoices too.
+
+        The billed time entries follow the assignment: they get the project set
+        (so the hours, dates and values count into the project's statistics)
+        and are released again when the assignment is cleared. Without this the
+        project would show the invoice but zero hours — exactly the confusion
+        this action exists to remove.
+        """
+        from apps.projects.models import Project
+
+        invoice = self.get_object()
+        project_id = request.data.get("project")
+        previous_project_id = invoice.project_id
+
+        linked_entry_ids = list(
+            invoice.invoice_time_entries.filter(invoice_cancelled=False).values_list(
+                "time_entry_id", flat=True
+            )
+        )
+
+        with transaction.atomic():
+            if project_id in (None, ""):
+                invoice.project = None
+                if previous_project_id and linked_entry_ids:
+                    # Only detach entries this assignment attached: those still
+                    # pointing at the invoice's previous project.
+                    TimeEntry.objects.filter(
+                        pk__in=linked_entry_ids, project_id=previous_project_id
+                    ).update(project=None, task=None, phase=None)
+            else:
+                project = Project.objects.filter(
+                    workspace=invoice.workspace, pk=str(project_id)
+                ).first()
+                if project is None:
+                    return Response(
+                        {"error": {"code": "not_found", "message": "Projekt nicht gefunden."}},
+                        status=http_status.HTTP_404_NOT_FOUND,
+                    )
+                if project.client_id != invoice.client_id:
+                    return Response(
+                        {
+                            "error": {
+                                "code": "client_mismatch",
+                                "message": (
+                                    "Projekt und Rechnung gehören zu unterschiedlichen Kunden."
+                                ),
+                            }
+                        },
+                        status=http_status.HTTP_409_CONFLICT,
+                    )
+                invoice.project = project
+                if linked_entry_ids:
+                    # Task/phase belong to the old project context; clear them
+                    # when the entry moves so no cross-project references linger.
+                    TimeEntry.objects.filter(pk__in=linked_entry_ids).exclude(
+                        project_id=project.pk
+                    ).update(project=project, task=None, phase=None)
+            invoice.save(update_fields=["project", "updated_at"])
+
+        record_audit(
+            request,
+            "invoice.project_assigned",
+            workspace=invoice.workspace,
+            target=invoice,
+            summary=(
+                f"{invoice.invoice_number or str(invoice.pk)[:8]} → "
+                f"{invoice.project.name if invoice.project else 'kein Projekt'}"
+                f" ({len(linked_entry_ids)} Zeiteinträge)"
+            ),
+        )
+        return Response(
+            InvoiceDetailSerializer(invoice, context=self.get_serializer_context()).data
+        )
+
     @action(detail=False, methods=["post"], url_path="preview")
     def preview(self, request: Request) -> Response:
         """Preview the lines a selection would produce, without persisting."""
@@ -248,6 +331,27 @@ class InvoiceViewSet(WorkspaceScopedViewSet):
         from apps.integrations.models import ExternalObjectLink, Provider
 
         invoice = self.get_object()
+        # Drafts never have a renderable document — the Lexware API rejects
+        # them by design (406). Fail fast with a useful hint instead of
+        # relaying a cryptic upstream error.
+        if invoice.status in (
+            InvoiceStatus.DRAFT_LOCAL,
+            InvoiceStatus.SEND_PENDING,
+            InvoiceStatus.DRAFT_REMOTE,
+        ):
+            return Response(
+                {
+                    "error": {
+                        "code": "draft_has_no_pdf",
+                        "message": (
+                            "Lexware erstellt das PDF erst bei der Finalisierung. "
+                            "Öffne den Entwurf über „In Lexware öffnen“ und stelle "
+                            "ihn dort fertig."
+                        ),
+                    }
+                },
+                status=http_status.HTTP_409_CONFLICT,
+            )
         link = ExternalObjectLink.objects.filter(
             workspace=invoice.workspace,
             provider=Provider.LEXWARE,

@@ -88,7 +88,7 @@ class TestExternalObjectLink:
         self, workspace: Workspace
     ) -> None:
         self._link(workspace, provider=Provider.LEXWARE)
-        self._link(workspace, provider=Provider.CLOCKODO, resource_type="customer")
+        self._link(workspace, provider=Provider.CLOCKIFY, resource_type="client")
         assert ExternalObjectLink.objects.count() == 2
 
     def test_one_local_object_links_once_per_provider_resource(self, workspace: Workspace) -> None:
@@ -141,7 +141,7 @@ class TestWebhookEvent:
             )
 
     def test_same_dedupe_key_allowed_across_providers(self, workspace: Workspace) -> None:
-        for provider in (Provider.LEXWARE, Provider.CLOCKODO):
+        for provider in (Provider.LEXWARE, Provider.CLOCKIFY):
             WebhookEvent.objects.create(
                 workspace=workspace,
                 provider=provider,
@@ -222,7 +222,7 @@ class TestSyncConflict:
         """No silent data loss: the user must be able to see what diverged."""
         conflict = SyncConflict.objects.create(
             workspace=workspace,
-            provider=Provider.CLOCKODO,
+            provider=Provider.CLOCKIFY,
             resource_type="entry",
             local_object_type="timetracking.TimeEntry",
             local_snapshot={"duration": 3600, "text": "Local edit"},

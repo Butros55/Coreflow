@@ -3,7 +3,7 @@
 Every integration is force-disabled here. A test that wants provider behaviour
 must opt in explicitly (see ``apps/integrations/tests/conftest.py``) and stub the
 HTTP layer with respx. There is no code path in the suite that can reach the
-real Lexware or Clockodo API.
+real Lexware or Clockify API.
 """
 
 from __future__ import annotations
@@ -49,16 +49,17 @@ STORAGES = {
 
 # Integrations off by default — tests must opt in and mock.
 LEXWARE_ENABLED = False
-CLOCKODO_ENABLED = False
+CLOCKIFY_ENABLED = False
 LEXWARE_API_KEY = ""
-CLOCKODO_API_USER = ""
-CLOCKODO_API_KEY = ""
+CLOCKIFY_API_KEY = ""
+# Fixed workspace id: no test should need to mock the /user discovery call.
+CLOCKIFY_WORKSPACE_ID = "ws-1"
 LEXWARE_WEBHOOK_SECRET = "test-webhook-secret"  # noqa: S105
-CLOCKODO_WEBHOOK_TOKEN = "test-webhook-token"  # noqa: S105
+CLOCKIFY_WEBHOOK_TOKEN = "test-webhook-token"  # noqa: S105
 
 # Retries make failure-path tests slow and flaky; exercise backoff explicitly instead.
 LEXWARE_MAX_RETRIES = 0
-CLOCKODO_MAX_RETRIES = 0
+CLOCKIFY_MAX_RETRIES = 0
 
 # Throttling off unless a test enables it. The scopes must stay declared with an
 # explicit None — ScopedRateThrottle raises ImproperlyConfigured for an *unknown*

@@ -86,7 +86,7 @@ class Command(BaseCommand):
         self.stdout.write(f"  Login      {email}")
         self.stdout.write(f"  Password   {password}")
         self.stdout.write("")
-        self.stdout.write("  Lexware and Clockodo are DISABLED — everything above is local data.")
+        self.stdout.write("  Lexware and Clockify are DISABLED — everything above is local data.")
         self.stdout.write("")
 
     def _reset(self) -> None:

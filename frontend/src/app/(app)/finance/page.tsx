@@ -1,8 +1,9 @@
 'use client';
 
-import { AlertTriangle, Info, PiggyBank } from 'lucide-react';
+import { FileText, Hourglass, Info, PiggyBank, Receipt, TrendingUp } from 'lucide-react';
 import * as React from 'react';
 
+import { ReserveLedgerPanel } from '@/components/finance/reserve-ledger-panel';
 import { PageHeader } from '@/components/layout/app-shell';
 import { DataTable, Td } from '@/components/ui/group-bar';
 import { Input, Label } from '@/components/ui/input';
@@ -14,11 +15,13 @@ import {
   type ReserveForecast,
   type TraceStep,
 } from '@/lib/api/finance';
+import { usePermissions } from '@/lib/session';
 import { formatHours, formatMoney } from '@/lib/utils';
 
 export default function FinancePage() {
   const { data: dashboard, isLoading } = useFinanceDashboard();
   const { data: reserve } = useReserve();
+  const permissions = usePermissions();
 
   const kpis = dashboard?.kpis;
 
@@ -35,26 +38,34 @@ export default function FinancePage() {
           <>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <StatTile
+                icon={<TrendingUp />}
                 label="Umsatz (Jahr)"
                 value={formatMoney(kpis?.revenue_ytd)}
                 hint={`Monat: ${formatMoney(kpis?.revenue_month)} · Quartal: ${formatMoney(kpis?.revenue_quarter)}`}
               />
               <StatTile
+                icon={<Receipt />}
                 label="Offene Forderungen"
                 value={formatMoney(kpis?.open_receivables)}
                 tone={Number(kpis?.open_receivables ?? 0) > 0 ? 'warning' : 'default'}
                 hint={
                   Number(kpis?.overdue_receivables ?? 0) > 0
                     ? `davon überfällig: ${formatMoney(kpis?.overdue_receivables)}`
-                    : undefined
+                    : 'Nichts überfällig'
                 }
               />
               <StatTile
+                icon={<Hourglass />}
                 label="Nicht abgerechnet"
                 value={formatMoney(kpis?.unbilled_value)}
                 hint={`${formatHours((kpis?.unbilled_seconds ?? 0) / 3600)} offen`}
               />
-              <StatTile label="Entwürfe" value={formatMoney(kpis?.draft_total)} />
+              <StatTile
+                icon={<FileText />}
+                label="Entwürfe"
+                value={formatMoney(kpis?.draft_total)}
+                hint="Noch nicht versendet"
+              />
             </div>
 
             <div className="grid gap-4 lg:grid-cols-3">
@@ -62,6 +73,7 @@ export default function FinancePage() {
                 <ReservePanel reserve={reserve} />
               </div>
               <div className="space-y-4">
+                <ReserveLedgerPanel canManage={permissions.can_manage_settings} />
                 <BreakdownPanel
                   title="Abgerechnete Leistung nach Kunde"
                   rows={dashboard?.breakdown.by_client ?? []}
@@ -121,26 +133,21 @@ function ReservePanel({ reserve }: { reserve: ReserveForecast | undefined }) {
         </span>
       </PanelHeader>
       <PanelBody className="space-y-4">
-        {reserve.limitations && reserve.limitations.length > 0 ? (
-          <div className="rounded-[var(--radius-sm)] border border-[var(--color-warning)] bg-[var(--color-warning-soft)] p-3">
-            <div className="mb-1.5 flex items-center gap-1.5 text-[length:var(--text-xs)] font-semibold text-[var(--color-warning)]">
-              <AlertTriangle className="size-3.5" aria-hidden /> Grenzen dieser Prognose
-            </div>
-            <ul className="space-y-1 pl-4 text-[length:var(--text-2xs)] text-[var(--color-ink-muted)]">
-              {reserve.limitations.map((limitation) => (
-                <li key={limitation} className="list-disc">
-                  {limitation}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
           <StatTile
             label="Empfohlene Rücklage"
             value={formatMoney(reserve.recommended_reserve)}
             tone="warning"
+          />
+          <StatTile
+            label="Ist-Rücklage"
+            value={formatMoney(reserve.existing_reserve)}
+            tone={Number(reserve.existing_reserve ?? 0) > 0 ? 'success' : 'default'}
+            hint={
+              reserve.last_transfer_date
+                ? `Letzter Übertrag: ${new Date(reserve.last_transfer_date).toLocaleDateString('de-DE')}`
+                : 'Startbestand + Rücklagenkonto'
+            }
           />
           <StatTile
             label={gap > 0 ? 'Noch zurückzulegen' : 'Rücklage gedeckt'}
@@ -174,10 +181,31 @@ function ReservePanel({ reserve }: { reserve: ReserveForecast | undefined }) {
           </DataTable>
         </div>
 
+        {/* Limitations and sources matter, but as fine print — not as the
+            loudest element on a money page. Collapsed by default. */}
+        {reserve.limitations && reserve.limitations.length > 0 ? (
+          <details className="text-[length:var(--text-2xs)] text-[var(--color-ink-subtle)]">
+            <summary className="inline-flex cursor-pointer items-center gap-1.5 select-none hover:text-[var(--color-ink-muted)]">
+              <Info className="size-3" aria-hidden />
+              Grenzen dieser Prognose ({reserve.limitations.length})
+            </summary>
+            <ul className="mt-1.5 space-y-1 pl-5">
+              {reserve.limitations.map((limitation) => (
+                <li key={limitation} className="list-disc">
+                  {limitation}
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
+
         {reserve.sources && reserve.sources.length > 0 ? (
           <details className="text-[length:var(--text-2xs)] text-[var(--color-ink-subtle)]">
-            <summary className="cursor-pointer">Quellen</summary>
-            <ul className="mt-1 space-y-0.5 pl-4">
+            <summary className="inline-flex cursor-pointer items-center gap-1.5 select-none hover:text-[var(--color-ink-muted)]">
+              <Info className="size-3" aria-hidden />
+              Quellen
+            </summary>
+            <ul className="mt-1.5 space-y-0.5 pl-5">
               {reserve.sources.map((source) => (
                 <li key={source.field}>
                   {source.source} — {source.note}
@@ -187,10 +215,9 @@ function ReservePanel({ reserve }: { reserve: ReserveForecast | undefined }) {
           </details>
         ) : null}
 
-        <div className="flex gap-2 rounded-[var(--radius-sm)] border border-[var(--color-warning)] bg-[var(--color-warning-soft)] p-2.5 text-[length:var(--text-2xs)] text-[var(--color-warning)]">
-          <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-          <p>{reserve.disclaimer}</p>
-        </div>
+        <p className="text-[length:var(--text-2xs)] text-[var(--color-ink-subtle)]">
+          {reserve.disclaimer}
+        </p>
       </PanelBody>
     </Panel>
   );

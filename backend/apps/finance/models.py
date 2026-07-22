@@ -123,6 +123,47 @@ class TaxRuleSet(BaseModel):
         return f"Steuerregeln {self.tax_year} v{self.rule_version}"
 
 
+class ReserveTransferSource(models.TextChoices):
+    """Where a reserve booking came from.
+
+    ``manual`` is the only source today. The Lexware Public API exposes no bank
+    accounts or balances (and the Partner API requires a partnership contract),
+    so a real bank sync is not possible — the field exists so that a future
+    sync (open banking, Partner API) can write into the same ledger without a
+    schema change.
+    """
+
+    MANUAL = "manual", _("Manuell erfasst")
+    LEXWARE = "lexware", _("Aus Lexware synchronisiert")
+
+
+class ReserveTransfer(WorkspaceScopedModel, BaseModel):
+    """One booking on the reserve ledger — money moved to (or from) the pot.
+
+    The current reserve is ``TaxProfile.existing_reserve`` (opening balance)
+    plus the sum of these bookings. A dated ledger instead of one mutable
+    number: the user can see *when* they set aside *what*, and the figure
+    stays honest without a bank connection.
+    """
+
+    transfer_date = models.DateField(db_index=True)
+    # Positive = zugeführt, negative = entnommen.
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    note = models.CharField(max_length=200, blank=True)
+    source = models.CharField(
+        max_length=20,
+        choices=ReserveTransferSource.choices,
+        default=ReserveTransferSource.MANUAL,
+    )
+
+    class Meta:
+        ordering = ["-transfer_date", "-created_at"]
+        indexes = [models.Index(fields=["workspace", "-transfer_date"])]
+
+    def __str__(self) -> str:
+        return f"Rücklage {self.transfer_date}: {self.amount} €"
+
+
 class ReserveSnapshot(WorkspaceScopedModel, BaseModel):
     """A point-in-time reserve computation, so a trend line is visible over time.
 

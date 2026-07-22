@@ -17,7 +17,7 @@ urlpatterns = [
     # Infrastructure
     path("", include("apps.core.urls")),
     # Inbound provider webhooks — outside /api/v1 (no session, no CSRF cookie;
-    # verification is per-provider: Clockodo token, Lexware signature).
+    # verification is per-provider: Clockify signature, Lexware signature).
     path("webhooks/", include("apps.integrations.webhook_urls")),
     # API
     path("api/v1/", include("config.api_urls")),

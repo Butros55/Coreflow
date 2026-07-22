@@ -33,7 +33,7 @@ class TestStatus:
         response = auth_client.get(reverse("integrations:status"))
         assert response.status_code == 200
         assert response.data["lexware"]["enabled"] is False
-        assert response.data["clockodo"]["enabled"] is False
+        assert response.data["clockify"]["enabled"] is False
         assert response.data["lexware"]["connected"] is False
 
     def test_status_requires_admin(self, member_client: APIClient) -> None:
@@ -133,24 +133,21 @@ class TestConflictResolution:
         assert response.status_code == 400
 
 
-class TestClockodoClient:
+class TestClockifyClient:
     @respx.mock
     @override_settings(
-        CLOCKODO_ENABLED=True,
-        CLOCKODO_API_USER="me@example.com",
-        CLOCKODO_API_KEY="key",
-        CLOCKODO_EXTERNAL_APP_EMAIL="tech@example.com",
+        CLOCKIFY_ENABLED=True,
+        CLOCKIFY_API_KEY="key-123",
     )
-    def test_external_app_header_format(self, fast_limiter: None) -> None:
-        from apps.integrations.clockodo.client import ClockodoClient
+    def test_api_key_header_is_sent(self, fast_limiter: None) -> None:
+        from apps.integrations.clockify.client import ClockifyClient
 
-        route = respx.get("https://my.clockodo.com/api/v4/users/me").mock(
-            return_value=httpx.Response(200, json={"data": {"name": "Max"}})
+        route = respx.get("https://api.clockify.me/api/v1/user").mock(
+            return_value=httpx.Response(200, json={"id": "u-1", "name": "Max"})
         )
-        with ClockodoClient() as client:
-            client.get_users_me()
+        with ClockifyClient() as client:
+            client.get_current_user()
 
         headers = route.calls.last.request.headers
-        # "name;email" — semicolon, no space (docs/integrations/clockodo.md §3).
-        assert headers["X-Clockodo-External-Application"] == "Coreflow;tech@example.com"
-        assert headers["X-ClockodoApiUser"] == "me@example.com"
+        # Auth is the single X-Api-Key header (docs/integrations/clockify.md §2).
+        assert headers["X-Api-Key"] == "key-123"

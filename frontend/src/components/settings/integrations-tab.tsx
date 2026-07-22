@@ -34,12 +34,11 @@ const PROVIDER_META = {
     note: 'Rechnungen werden als Entwurf erstellt. Die rechtsgültige Finalisierung erfolgt in Lexware — die API kann einen Entwurf nachträglich nicht finalisieren.',
     envHint: 'LEXWARE_ENABLED=true und LEXWARE_API_KEY in der .env setzen.',
   },
-  clockodo: {
-    name: 'Clockodo',
-    role: 'Optionale Zeiterfassung — Coreflow funktioniert vollständig ohne',
-    note: 'Webhooks können nicht per API registriert werden: im Clockodo-Menü einrichten und das zugesandte Secret hier hinterlegen.',
-    envHint:
-      'CLOCKODO_ENABLED=true, CLOCKODO_API_USER, CLOCKODO_API_KEY und CLOCKODO_EXTERNAL_APP_EMAIL setzen.',
+  clockify: {
+    name: 'Clockify',
+    role: 'Optionale Zeiterfassung, beidseitig synchronisiert — Coreflow funktioniert vollständig ohne',
+    note: 'Projekte, Kunden, Tags und Zeiteinträge werden in beide Richtungen gespiegelt. Webhooks (Workspace-Einstellungen → Webhooks) melden Änderungen sofort: pro Event-Typ einen Webhook auf die URL unten anlegen und die Signing-Tokens kommasepariert in CLOCKIFY_WEBHOOK_TOKEN hinterlegen.',
+    envHint: 'CLOCKIFY_ENABLED=true und CLOCKIFY_API_KEY in der .env setzen.',
   },
 } as const;
 
@@ -49,7 +48,7 @@ export function IntegrationsTab() {
   return (
     <div className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-2">
-        {(['lexware', 'clockodo'] as const).map((provider) =>
+        {(['lexware', 'clockify'] as const).map((provider) =>
           data ? (
             <ProviderCard key={provider} provider={provider} status={data[provider]} />
           ) : (
@@ -70,7 +69,7 @@ function ProviderCard({
   provider,
   status,
 }: {
-  provider: 'lexware' | 'clockodo';
+  provider: 'lexware' | 'clockify';
   status: IntegrationStatus;
 }) {
   const meta = PROVIDER_META[provider];
@@ -198,24 +197,14 @@ function ProviderCard({
                 <StatusTint tone="hold">Kein Webhook</StatusTint>
               )}
             </div>
-            {provider === 'clockodo' && status.webhook_url ? (
+            {provider === 'clockify' && status.webhook_url ? (
               <div className="space-y-1 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-panel-sunken)] p-2.5 text-[length:var(--text-2xs)]">
                 <p className="text-[var(--color-ink-muted)]">
-                  Webhook-URL (im Clockodo-Menü eintragen):
+                  Webhook-URL (in Clockify pro Event-Typ einen Webhook darauf anlegen):
                 </p>
                 <code className="block break-all text-[var(--color-ink)]">
                   {status.webhook_url}
                 </code>
-                {status.webhook_handshake_secret ? (
-                  <>
-                    <p className="pt-1 text-[var(--color-ink-muted)]">
-                      Empfangenes Handshake-Secret (zurück in Clockodo einfügen):
-                    </p>
-                    <code className="block break-all text-[var(--color-ink)]">
-                      {status.webhook_handshake_secret}
-                    </code>
-                  </>
-                ) : null}
               </div>
             ) : null}
           </>

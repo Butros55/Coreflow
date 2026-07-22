@@ -48,7 +48,7 @@ export interface TimeEntry {
   started_at: string;
   ended_at: string | null;
   duration_seconds: number;
-  source: 'manual' | 'timer' | 'clockodo';
+  source: 'manual' | 'timer' | 'clockify' | 'lexware';
   billable: boolean;
   hourly_rate: string;
   computed_amount: string;
@@ -56,6 +56,8 @@ export interface TimeEntry {
   rounded_from_seconds: number | null;
   is_running: boolean;
   invoice_link: TimeEntryInvoiceLink | null;
+  /** External systems this entry exists in — an entry can carry both. */
+  integration_tags: ('lexware' | 'clockify')[];
 }
 
 export function useServiceTypes() {

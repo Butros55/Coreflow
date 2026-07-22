@@ -209,9 +209,9 @@ schema: ## Write the OpenAPI schema to docs/api/openapi.yaml
 sync-lexware: ## Trigger a full Lexware sync
 	$(BACKEND) python manage.py sync_provider lexware --full
 
-.PHONY: sync-clockodo
-sync-clockodo: ## Trigger a full Clockodo sync
-	$(BACKEND) python manage.py sync_provider clockodo --full
+.PHONY: sync-clockify
+sync-clockify: ## Trigger a full Clockify sync
+	$(BACKEND) python manage.py sync_provider clockify --full
 
 .PHONY: test-connection
 test-connection: ## Test configured provider connections

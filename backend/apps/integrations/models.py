@@ -27,7 +27,7 @@ from apps.core.models import BaseModel, WorkspaceScopedModel
 
 class Provider(models.TextChoices):
     LEXWARE = "lexware", _("Lexware Office")
-    CLOCKODO = "clockodo", _("Clockodo")
+    CLOCKIFY = "clockify", _("Clockify")
 
 
 class SyncDirection(models.TextChoices):
@@ -103,7 +103,7 @@ class ExternalObjectLink(WorkspaceScopedModel, BaseModel):
     external_version = models.CharField(
         max_length=64,
         blank=True,
-        help_text=_("Remote version/revision. Lexware uses an int; Clockodo has none."),
+        help_text=_("Remote version/revision. Lexware uses an int; Clockify has none."),
     )
     sync_hash = models.CharField(
         max_length=80,
@@ -226,11 +226,11 @@ class SyncJob(WorkspaceScopedModel, BaseModel):
 class WebhookEvent(WorkspaceScopedModel, BaseModel):
     """An inbound webhook, persisted before any processing.
 
-    Both providers send **pointers, not data** — Lexware sends
-    ``{organizationId, eventType, resourceId, eventDate}`` and Clockodo sends
-    ``{payload: {entry: {id}}, event_name, token, ...}``. So processing always
-    means "fetch the resource, then reconcile", and the payload here is evidence
-    for debugging rather than a source of truth.
+    Lexware sends **pointers, not data** (``{organizationId, eventType,
+    resourceId, eventDate}``); Clockify sends the full entity JSON with the
+    event name in a header. Processing still always means "fetch the resource,
+    then reconcile" — a webhook body may be stale by the time it is processed —
+    so the payload here is evidence for debugging rather than a source of truth.
 
     Persist-then-ack is not optional: Lexware's read timeout is 5000 ms and a
     persistent failure to respond causes it to **delete the subscription**.
@@ -257,12 +257,12 @@ class WebhookEvent(WorkspaceScopedModel, BaseModel):
     error_message = models.TextField(blank=True)
 
     # Provider-side event identity, used for deduplication. For Lexware this is
-    # a digest of (eventType, resourceId, eventDate); for Clockodo
-    # (event_name, entity id, occurred_at). Neither provider guarantees
+    # a digest of (eventType, resourceId, eventDate); for Clockify
+    # (event type, entity id, payload digest). Neither provider guarantees
     # exactly-once delivery, so we enforce it ourselves.
     dedupe_key = models.CharField(max_length=128, blank=True, db_index=True)
     signature_verified = models.BooleanField(
-        default=False, help_text=_("Lexware: RSA-SHA512 verified. Clockodo: token matched.")
+        default=False, help_text=_("Lexware: RSA-SHA512 verified. Clockify: signature matched.")
     )
 
     class Meta:

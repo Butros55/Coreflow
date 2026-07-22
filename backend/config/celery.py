@@ -32,9 +32,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs: object) -> None:
         name="lexware:incremental-sync",
     )
     sender.add_periodic_task(
-        settings.CLOCKODO_SYNC_INTERVAL_MINUTES * 60.0,
-        app.signature("apps.integrations.clockodo.tasks.sync_clockodo_incremental"),
-        name="clockodo:incremental-sync",
+        settings.CLOCKIFY_SYNC_INTERVAL_MINUTES * 60.0,
+        app.signature("apps.integrations.clockify.tasks.sync_clockify_incremental"),
+        name="clockify:incremental-sync",
     )
     sender.add_periodic_task(
         crontab(minute="*/5"),

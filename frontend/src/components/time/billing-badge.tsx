@@ -1,7 +1,7 @@
 import Link from 'next/link';
 
 import { StatusTint, type StatusTone } from '@/components/ui/status-pill';
-import type { TimeEntryInvoiceLink } from '@/lib/api/time';
+import type { TimeEntry, TimeEntryInvoiceLink } from '@/lib/api/time';
 
 const MAP: Record<string, { tone: StatusTone; label: string }> = {
   open: { tone: 'todo', label: 'Offen' },
@@ -40,5 +40,41 @@ export function InvoiceLinkChip({ link }: { link: TimeEntryInvoiceLink }) {
         <span className="font-medium text-[var(--color-brand)]">· Lexware</span>
       ) : null}
     </Link>
+  );
+}
+
+const TAG_META: Record<string, { label: string; title: string }> = {
+  lexware: {
+    label: 'Lexware',
+    title: 'In Lexware vorhanden (importiert oder dort abgerechnet)',
+  },
+  clockify: {
+    label: 'Clockify',
+    title: 'Mit Clockify synchronisiert',
+  },
+};
+
+/**
+ * Which external systems an entry exists in. A deduplicated entry (e.g. from
+ * Lexware billed, in Clockify getrackt) shows BOTH chips on one row — that is
+ * the point: one entry, two tags, never two entries.
+ */
+export function IntegrationTagChips({ tags }: { tags: TimeEntry['integration_tags'] }) {
+  if (!tags || tags.length === 0) return null;
+  return (
+    <>
+      {tags.map((tag) => {
+        const meta = TAG_META[tag] ?? { label: tag, title: tag };
+        return (
+          <span
+            key={tag}
+            title={meta.title}
+            className="inline-flex items-center rounded-[var(--radius-xs)] border border-[var(--color-line)] bg-[var(--color-panel-sunken)] px-1.5 py-0.5 text-[length:var(--text-2xs)] font-medium text-[var(--color-brand)]"
+          >
+            {meta.label}
+          </span>
+        );
+      })}
+    </>
   );
 }

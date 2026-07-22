@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from django.urls import path
 
-from apps.integrations.webhooks import ClockodoWebhookView
+from apps.integrations.webhooks import ClockifyWebhookView
 
 app_name = "webhooks"
 
 urlpatterns = [
-    path("clockodo/", ClockodoWebhookView.as_view(), name="clockodo"),
+    path("clockify/", ClockifyWebhookView.as_view(), name="clockify"),
 ]

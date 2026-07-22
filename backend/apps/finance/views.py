@@ -16,9 +16,14 @@ from rest_framework.views import APIView
 from apps.accounts.permissions import IsAdminOrReadOnly, IsWorkspaceMember
 from apps.core.api import WorkspaceScopedViewSet
 from apps.core.pagination import DefaultPagination
-from apps.finance.models import ReserveSnapshot, TaxProfile
-from apps.finance.serializers import ReserveSnapshotSerializer, TaxProfileSerializer
+from apps.finance.models import ReserveSnapshot, ReserveTransfer, TaxProfile
+from apps.finance.serializers import (
+    ReserveSnapshotSerializer,
+    ReserveTransferSerializer,
+    TaxProfileSerializer,
+)
 from apps.finance.services import (
+    business_report,
     compute_kpis,
     compute_reserve,
     create_snapshot,
@@ -45,6 +50,20 @@ class FinanceDashboardView(APIView):
                 "year": today.year,
             }
         )
+
+
+class BusinessReportView(APIView):
+    """The full internal report: monthly series, rates, clients, projects."""
+
+    permission_classes = [IsWorkspaceMember]
+
+    def get(self, request: Request) -> Response:
+        from apps.accounts.permissions import resolve_workspace
+
+        workspace = resolve_workspace(request)
+        if workspace is None:
+            return Response({"detail": "Kein Workspace."}, status=http_status.HTTP_403_FORBIDDEN)
+        return Response(business_report(workspace))
 
 
 class ReserveView(APIView):
@@ -101,6 +120,21 @@ class TaxProfileViewSet(WorkspaceScopedViewSet):
             defaults={"small_business": workspace.small_business},
         )
         return Response(self.get_serializer(profile).data)
+
+
+class ReserveTransferViewSet(WorkspaceScopedViewSet):
+    """The reserve ledger: dated bookings that make up the current reserve.
+
+    Write access is admin-only, like the tax profile — this is money
+    management, not day-to-day work.
+    """
+
+    queryset = ReserveTransfer.objects.all()
+    serializer_class = ReserveTransferSerializer
+    permission_classes = [IsAdminOrReadOnly]
+    filterset_fields = {"transfer_date": ["gte", "lte"]}
+    ordering = ["-transfer_date", "-created_at"]
+    http_method_names = ["get", "post", "delete", "head", "options"]
 
 
 class ReserveSnapshotViewSet(viewsets.ReadOnlyModelViewSet[ReserveSnapshot]):

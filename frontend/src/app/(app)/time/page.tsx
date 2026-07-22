@@ -1,10 +1,12 @@
 'use client';
 
 import {
+  BadgeEuro,
   ChevronLeft,
   ChevronRight,
   FileSpreadsheet,
   FileText,
+  ListChecks,
   Play,
   Plus,
   Square,
@@ -15,7 +17,7 @@ import * as React from 'react';
 import { toast } from 'sonner';
 
 import { PageHeader } from '@/components/layout/app-shell';
-import { BillingBadge, InvoiceLinkChip } from '@/components/time/billing-badge';
+import { BillingBadge, IntegrationTagChips, InvoiceLinkChip } from '@/components/time/billing-badge';
 import { Button } from '@/components/ui/button';
 import { DeleteConfirmationDialog } from '@/components/ui/delete-confirmation-dialog';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
@@ -157,7 +159,7 @@ export default function TimePage() {
       >
         <div className="flex flex-wrap items-center gap-3 pt-3 pb-3">
           <div
-            className="flex items-center gap-0.5 rounded-[var(--radius-sm)] border border-[var(--color-line)] p-0.5"
+            className="flex items-center gap-1 rounded-full bg-[var(--color-panel-sunken)] p-1"
             role="group"
             aria-label="Zeitraum"
           >
@@ -167,9 +169,9 @@ export default function TimePage() {
                 type="button"
                 onClick={() => switchPeriod(value)}
                 className={cn(
-                  'rounded-[var(--radius-xs)] px-2.5 py-1 text-[length:var(--text-xs)] font-medium',
+                  'rounded-full px-3 py-1 text-[length:var(--text-xs)] font-medium transition-colors',
                   period === value
-                    ? 'bg-[var(--color-panel-raised)] text-[var(--color-ink)]'
+                    ? 'bg-[var(--color-panel)] text-[var(--color-ink)] shadow-[var(--shadow-panel)]'
                     : 'text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]',
                 )}
               >
@@ -218,15 +220,24 @@ export default function TimePage() {
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <StatTile
+            icon={<TimerIcon />}
             label={isCurrent ? CURRENT_LABELS[period] : PERIOD_LABELS[period]}
             value={formatHours(totalSeconds / 3600)}
+            hint="Erfasste Zeit im Zeitraum"
           />
           <StatTile
+            icon={<BadgeEuro />}
             label="Abrechenbarer Wert"
             value={formatMoney(totalBillable.toFixed(2))}
             tone={totalBillable > 0 ? 'success' : 'default'}
+            hint="Aus abrechenbaren Einträgen"
           />
-          <StatTile label="Einträge" value={entries.length} />
+          <StatTile
+            icon={<ListChecks />}
+            label="Einträge"
+            value={entries.length}
+            hint="Im gewählten Zeitraum"
+          />
         </div>
 
         {isFillingUp ? (
@@ -516,6 +527,7 @@ function DayTable({
                   <div className="flex flex-wrap items-center gap-1.5">
                     <BillingBadge status={entry.billing_status} />
                     {entry.invoice_link ? <InvoiceLinkChip link={entry.invoice_link} /> : null}
+                    <IntegrationTagChips tags={entry.integration_tags} />
                   </div>
                 </Td>
                 {canEdit ? (

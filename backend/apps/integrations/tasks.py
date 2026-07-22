@@ -13,7 +13,7 @@ from apps.core.logging import get_logger
 
 # Celery's autodiscovery only scans <app>.tasks — the nested provider modules
 # must be imported explicitly or the worker never registers their tasks.
-from apps.integrations.clockodo import tasks as _clockodo_tasks  # noqa: F401
+from apps.integrations.clockify import tasks as _clockify_tasks  # noqa: F401
 from apps.integrations.lexware import tasks as _lexware_tasks  # noqa: F401
 from apps.integrations.models import Provider, WebhookEvent, WebhookProcessingStatus
 
@@ -29,7 +29,7 @@ def process_pending_webhook_events() -> dict[str, Any]:
 
     Safe to run at any frequency — processing is hash-idempotent.
     """
-    from apps.integrations.clockodo.tasks import process_clockodo_webhook_event
+    from apps.integrations.clockify.tasks import process_clockify_webhook_event
 
     cutoff = timezone.now() - dt.timedelta(minutes=2)
     stuck = WebhookEvent.objects.filter(
@@ -42,8 +42,8 @@ def process_pending_webhook_events() -> dict[str, Any]:
 
     dispatched = 0
     for event in stuck:
-        if event.provider == Provider.CLOCKODO:
-            process_clockodo_webhook_event.delay(str(event.pk))
+        if event.provider == Provider.CLOCKIFY:
+            process_clockify_webhook_event.delay(str(event.pk))
             dispatched += 1
         # Lexware has no inbound receiver yet; nothing can be stuck for it.
 

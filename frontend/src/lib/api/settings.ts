@@ -56,6 +56,26 @@ export function useDeleteServiceType() {
   });
 }
 
+/**
+ * Re-price the still-open time entries of a service type after a rate change.
+ * Billed and drafted work stays frozen — only OPEN/MARKED entries follow.
+ */
+export function useApplyServiceTypeRate() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<{ updated: number; considered: number }>(`/service-types/${id}/apply-rate/`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['time-entries'] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['project'] });
+      queryClient.invalidateQueries({ queryKey: ['clients'] });
+      queryClient.invalidateQueries({ queryKey: ['finance-dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['business-report'] });
+    },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Team
 // ---------------------------------------------------------------------------
@@ -82,7 +102,7 @@ export interface IntegrationProfile {
 }
 
 export interface IntegrationStatus {
-  provider: 'lexware' | 'clockodo';
+  provider: 'lexware' | 'clockify';
   enabled: boolean;
   configured: boolean;
   webhook_configured: boolean;
@@ -94,17 +114,15 @@ export interface IntegrationStatus {
   open_conflicts: number;
   linked_objects: number;
   webhook_events: number;
-  /** Clockodo only: the URL to paste into Clockodo's webhook settings. */
+  /** Clockify only: the URL every Clockify webhook (one per event type) points at. */
   webhook_url?: string;
-  /** Clockodo only: handshake secret received on webhook creation. */
-  webhook_handshake_secret?: string;
 }
 
 export function useIntegrationStatus() {
   return useQuery({
     queryKey: ['integration-status'],
     queryFn: () =>
-      api.get<{ lexware: IntegrationStatus; clockodo: IntegrationStatus }>('/integrations/status'),
+      api.get<{ lexware: IntegrationStatus; clockify: IntegrationStatus }>('/integrations/status'),
     refetchInterval: 30_000,
   });
 }
@@ -112,7 +130,7 @@ export function useIntegrationStatus() {
 export function useTestConnection() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (provider: 'lexware' | 'clockodo') =>
+    mutationFn: (provider: 'lexware' | 'clockify') =>
       api.post<{ ok: boolean; company_name: string }>(`/integrations/${provider}/test`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['integration-status'] }),
   });
@@ -121,7 +139,7 @@ export function useTestConnection() {
 export function useTriggerSync() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ provider, full }: { provider: 'lexware' | 'clockodo'; full?: boolean }) =>
+    mutationFn: ({ provider, full }: { provider: 'lexware' | 'clockify'; full?: boolean }) =>
       api.post<{ ok: boolean; queued: boolean }>(
         `/integrations/${provider}/sync`,
         full ? { full: true } : undefined,

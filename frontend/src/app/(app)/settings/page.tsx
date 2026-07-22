@@ -3,6 +3,7 @@
 import { PageHeader } from '@/components/layout/app-shell';
 import { AuditLogTab } from '@/components/settings/audit-log-tab';
 import { CompanyTab } from '@/components/settings/company-tab';
+import { DataTab } from '@/components/settings/data-tab';
 import { IntegrationsTab } from '@/components/settings/integrations-tab';
 import { ServiceTypesTab } from '@/components/settings/service-types-tab';
 import { TaxProfileTab } from '@/components/settings/tax-profile-tab';
@@ -25,6 +26,7 @@ export default function SettingsPage() {
             {permissions.can_manage_integrations ? (
               <TabsTrigger value="integrations">Integrationen</TabsTrigger>
             ) : null}
+            {permissions.can_manage_settings ? <TabsTrigger value="data">Daten</TabsTrigger> : null}
             {permissions.can_manage_settings ? (
               <TabsTrigger value="audit">Audit-Protokoll</TabsTrigger>
             ) : null}
@@ -46,6 +48,11 @@ export default function SettingsPage() {
             {permissions.can_manage_integrations ? (
               <TabsContent value="integrations">
                 <IntegrationsTab />
+              </TabsContent>
+            ) : null}
+            {permissions.can_manage_settings ? (
+              <TabsContent value="data">
+                <DataTab />
               </TabsContent>
             ) : null}
             {permissions.can_manage_settings ? (

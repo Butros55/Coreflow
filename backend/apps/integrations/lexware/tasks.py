@@ -74,7 +74,7 @@ def sync_invoice_statuses(workspace: Any) -> dict[str, int] | None:
 
     Mirrors three kinds of remote change:
     * status/number/payment updates (an invoice that turns OPEN or PAID marks
-      its entries billed — which pushes ``billable=2`` to Clockodo),
+      its entries billed — which tags them "Abgerechnet" in Clockify),
     * a voucher **voided** in Lexware → local VOIDED, hours released,
     * a draft **deleted** in Lexware (GET → 404) → local VOIDED, hours
       released. A 404 on a *finalised* invoice is anomalous (Lexware does not

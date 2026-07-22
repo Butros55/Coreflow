@@ -302,7 +302,7 @@ class LexwareImport:
                 # Already mirrored (either imported before or created by us) —
                 # the periodic status sync keeps those fresh. Matching still
                 # runs so mirrors from before the matcher existed (or whose
-                # hours arrived later, e.g. via Clockodo) get their entries.
+                # hours arrived later, e.g. via Clockify) get their entries.
                 job.records_skipped += 1
                 entries_matched += self._match_existing(links[external_id])
                 continue

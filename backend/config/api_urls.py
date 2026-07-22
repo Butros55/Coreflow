@@ -18,6 +18,7 @@ from apps.accounts.views import (
     WorkspaceViewSet,
 )
 from apps.core.audit_views import AuditLogViewSet
+from apps.core.portability_views import ExportWorkspaceView, ImportWorkspaceView
 from apps.crm.views import (
     ClientActivityViewSet,
     ClientContactViewSet,
@@ -26,8 +27,10 @@ from apps.crm.views import (
 )
 from apps.files.views import StoredFileViewSet
 from apps.finance.views import (
+    BusinessReportView,
     FinanceDashboardView,
     ReserveSnapshotViewSet,
+    ReserveTransferViewSet,
     ReserveView,
     TaxProfileViewSet,
 )
@@ -75,6 +78,7 @@ router.register("open-entries", OpenTimeEntriesView, basename="open-entry")
 # Finance
 router.register("tax-profiles", TaxProfileViewSet, basename="tax-profile")
 router.register("reserve-snapshots", ReserveSnapshotViewSet, basename="reserve-snapshot")
+router.register("reserve-transfers", ReserveTransferViewSet, basename="reserve-transfer")
 # Scheduling & files
 router.register("appointments", AppointmentViewSet, basename="appointment")
 router.register("files", StoredFileViewSet, basename="file")
@@ -94,6 +98,7 @@ auth_patterns = [
 finance_patterns = [
     path("dashboard", FinanceDashboardView.as_view(), name="dashboard"),
     path("reserve", ReserveView.as_view(), name="reserve"),
+    path("report", BusinessReportView.as_view(), name="report"),
 ]
 
 integration_patterns = [
@@ -102,9 +107,15 @@ integration_patterns = [
     path("<str:provider>/sync", TriggerSyncView.as_view(), name="sync"),
 ]
 
+workspace_data_patterns = [
+    path("export", ExportWorkspaceView.as_view(), name="export"),
+    path("import", ImportWorkspaceView.as_view(), name="import"),
+]
+
 urlpatterns = [
     path("auth/", include((auth_patterns, "auth"))),
     path("finance/", include((finance_patterns, "finance"))),
     path("integrations/", include((integration_patterns, "integrations"))),
+    path("workspace-data/", include((workspace_data_patterns, "workspace-data"))),
     path("", include(router.urls)),
 ]

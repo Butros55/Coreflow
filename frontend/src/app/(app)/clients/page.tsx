@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  BadgeEuro,
   Building2,
   Clock3,
   FolderKanban,
@@ -20,7 +21,7 @@ import { DeleteClientDialog } from '@/components/clients/delete-client-dialog';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { ClickableRow, DataTable, GroupSection, Td, Th } from '@/components/ui/group-bar';
-import { EmptyState } from '@/components/ui/panel';
+import { EmptyState, StatTile } from '@/components/ui/panel';
 import { Input, Label } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { StatusTint } from '@/components/ui/status-pill';
@@ -58,6 +59,11 @@ export default function ClientsPage() {
     clients: clients.filter((client) => client.status === group.status),
   })).filter((group) => group.clients.length > 0);
 
+  const activeCount = clients.filter((client) => client.status === 'active').length;
+  const openSeconds = clients.reduce((sum, client) => sum + client.stats.open_seconds, 0);
+  const openValue = clients.reduce((sum, client) => sum + Number(client.stats.open_amount), 0);
+  const activeProjects = clients.reduce((sum, client) => sum + client.stats.active_projects, 0);
+
   return (
     <>
       <PageHeader
@@ -85,7 +91,7 @@ export default function ClientsPage() {
               aria-label="Kunden durchsuchen"
             />
           </div>
-          <div className="flex overflow-hidden rounded-[var(--radius-sm)] border border-[var(--color-line)]">
+          <div className="flex items-center gap-1 rounded-full bg-[var(--color-panel-sunken)] p-1">
             <ViewButton
               active={!cardView}
               label="Tabelle"
@@ -102,7 +108,37 @@ export default function ClientsPage() {
         </div>
       </PageHeader>
 
-      <div className="p-5">
+      <div className="space-y-4 p-5">
+        {!isLoading && clients.length > 0 && !search ? (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <StatTile
+              icon={<Building2 />}
+              label="Kunden"
+              value={data?.count ?? '…'}
+              hint={`${activeCount} aktiv`}
+            />
+            <StatTile
+              icon={<Clock3 />}
+              label="Offene Stunden"
+              value={openSeconds > 0 ? formatHours(openSeconds / 3600) : '—'}
+              hint="Noch nicht abgerechnet"
+            />
+            <StatTile
+              icon={<BadgeEuro />}
+              label="Offener Wert"
+              value={formatMoney(openValue.toFixed(2))}
+              tone={openValue > 0 ? 'warning' : 'default'}
+              hint="Abrechenbare offene Zeiten"
+            />
+            <StatTile
+              icon={<FolderKanban />}
+              label="Aktive Projekte"
+              value={activeProjects}
+              hint="Über alle Kunden"
+            />
+          </div>
+        ) : null}
+
         {isLoading ? (
           <p className="text-[length:var(--text-sm)] text-[var(--color-ink-muted)]">Lädt…</p>
         ) : groups.length === 0 ? (
@@ -214,8 +250,8 @@ function ViewButton({
       title={label}
       className={
         active
-          ? 'flex h-8 items-center gap-1.5 bg-[var(--color-brand-subtle)] px-2.5 text-[length:var(--text-xs)] font-medium text-[var(--color-ink)] [&_svg]:size-3.5'
-          : 'flex h-8 items-center gap-1.5 px-2.5 text-[length:var(--text-xs)] text-[var(--color-ink-muted)] transition-colors hover:bg-[var(--color-panel-raised)] [&_svg]:size-3.5'
+          ? 'flex h-7 items-center gap-1.5 rounded-full bg-[var(--color-panel)] px-3 text-[length:var(--text-xs)] font-medium text-[var(--color-ink)] shadow-[var(--shadow-panel)] [&_svg]:size-3.5'
+          : 'flex h-7 items-center gap-1.5 rounded-full px-3 text-[length:var(--text-xs)] text-[var(--color-ink-muted)] transition-colors hover:text-[var(--color-ink)] [&_svg]:size-3.5'
       }
     >
       {icon}

@@ -3,7 +3,7 @@
 ## 1. What this system is
 
 One workspace for a self-employed German software developer, replacing the daily loop of
-Lexware ↔ Clockodo ↔ spreadsheets ↔ calendar ↔ project tool.
+Lexware ↔ Clockify ↔ spreadsheets ↔ calendar ↔ project tool.
 
 The design question that shapes everything: **who owns which fact?**
 
@@ -18,8 +18,8 @@ The design question that shapes everything: **who owns which fact?**
 │ never invent)                │ status, PDF/e-invoice, payments, open        │
 │                              │ amounts, bookkeeping vouchers, expenses      │
 ├──────────────────────────────┼──────────────────────────────────────────────┤
-│ Clockodo owns (optional,     │ Entries created there, timers started there, │
-│ only what originates there)  │ its own customer/project/service records     │
+│ Clockify (optional, two-way  │ Its copies of clients, projects, tags and    │
+│ mirror — no owner, one state)│ time entries — kept in step with Coreflow's  │
 └──────────────────────────────┴──────────────────────────────────────────────┘
 ```
 
@@ -27,8 +27,10 @@ Two rules follow, and they are absolute:
 
 1. **Coreflow never invents an accounting fact.** It cannot mint an invoice number or decide that an
    invoice is paid. Those come from Lexware or they do not exist.
-2. **Clockodo is never required.** The internal time tracking is the primary implementation, not a
-   fallback. `CLOCKODO_ENABLED=false` is a fully supported, permanent configuration.
+2. **Clockify is never required.** The internal time tracking is the primary implementation, not a
+   fallback. `CLOCKIFY_ENABLED=false` is a fully supported, permanent configuration. When enabled,
+   both sides converge on the same state (entries deduplicated against Lexware imports — one entry,
+   two provenance tags).
 
 ## 2. Runtime topology
 
@@ -55,7 +57,7 @@ Two rules follow, and they are absolute:
                             │                           │
                             ▼                           ▼
                      ┌──────────────┐         ┌───────────────────┐
-                     │ MinIO / S3   │         │ Lexware · Clockodo│
+                     │ MinIO / S3   │         │ Lexware · Clockify│
                      │ files        │         │ (outbound only)   │
                      └──────────────┘         └─────────┬─────────┘
                                                         │ webhooks (inbound)
@@ -87,12 +89,14 @@ backend/
     ├── files/         StoredFile
     └── integrations/  provider port + adapters, links, sync jobs, webhooks, conflicts
         ├── lexware/
-        └── clockodo/
+        └── clockify/
 ```
 
 Apps depend **downward only**: `core` ← `accounts` ← domain apps ← `integrations`. `integrations`
 knows about domain models; no domain model imports a provider client. That is what keeps the
-"no direct coupling to Clockodo" requirement true structurally rather than by discipline.
+"no direct coupling to Clockify" requirement true structurally rather than by discipline. (The
+time-tracking views call one integration *hook* to mirror local changes — a thin, enabled-guarded
+enqueue, not a provider client.)
 
 ## 4. Cross-cutting decisions
 
@@ -168,7 +172,7 @@ apps/integrations/
 ├── models.py            ExternalObjectLink, SyncJob, WebhookEvent, SyncConflict, ProviderProfile
 ├── base.py              the port: test_connection / fetch / push / handle_webhook
 ├── lexware/{client,mapping,sync,webhooks,tasks}.py
-└── clockodo/{client,mapping,sync,webhooks,tasks}.py
+└── clockify/{client,mapping,sync,hooks,tasks}.py
 ```
 
 Adding a third provider = a new `Provider` choice + a package. No schema change.
@@ -191,22 +195,21 @@ Neither provider guarantees exactly-once delivery, so **we** guarantee it:
 3. `WebhookEvent.dedupe_key` unique per provider (partial index, so blank keys don't collide).
 
 ### Webhooks: persist first, process later
-Both providers send **pointers, not data**:
-* Lexware: `{organizationId, eventType, resourceId, eventDate}`
-* Clockodo: `{event_name, payload: {entry: {id}}, token, …}` — "We only transmit the ID […] not
-  full datasets or deltas."
+* Lexware sends **pointers, not data**: `{organizationId, eventType, resourceId, eventDate}`
+* Clockify sends the **full entity**, with the event name and per-webhook signing token in headers
 
-So every handler is **fetch-then-reconcile**, never blind-apply. And the endpoint does the minimum:
+Either way every handler is **fetch-then-reconcile**, never blind-apply — a webhook body can be
+stale by the time it is processed. And the endpoint does the minimum:
 verify → persist `WebhookEvent` → enqueue → return 204. Lexware's read timeout is **5000 ms**, and
 a persistent failure to respond causes it to **delete the subscription**. Inline processing would
 eventually unsubscribe us from our own accounting events.
 
 ### Authenticity
-| | Lexware | Clockodo |
+| | Lexware | Clockify |
 | --- | --- | --- |
-| Signature | **RSA-SHA512** `X-Lxo-Signature` over the raw body, public key published | none — a plaintext `token` in the body |
-| Secret path | yes (`LEXWARE_WEBHOOK_SECRET`) | yes |
-| Tenant check | `organizationId` must match the stored profile | `company_id` |
+| Signature | **RSA-SHA512** `X-Lxo-Signature` over the raw body, public key published | `clockify-signature` header = the webhook's signing token, constant-time compared against `CLOCKIFY_WEBHOOK_TOKEN` (comma-separated, one per webhook) |
+| Secret path | yes (`LEXWARE_WEBHOOK_SECRET`) | no — the signature header is the secret |
+| Tenant check | `organizationId` must match the stored profile | events attach to the single connected workspace |
 
 Lexware's signature is verified against the **raw request bytes**, captured before JSON parsing —
 re-serialising will not reproduce the signed bytes.
@@ -221,7 +224,7 @@ Nothing is silently dropped.
 | | Limit | Consequence |
 | --- | --- | --- |
 | Lexware | **2 req/s globally**, no `Retry-After`, 500 can mean throttled | Requests are **serialised** through a token bucket. Fanning out per-resource would breach the shared budget. |
-| Clockodo | 900/min, but **300/15min** for the entry listing we need, and **10/min** for bulk billing | Entry sync is windowed; per-entry `PUT` is preferred over the bulk endpoint. |
+| Clockify | ~50 req/s per key | Self-throttled to 5 req/s; entry listing is per user and windowed (31 days), so even a year's full sync stays cheap. |
 
 Lexware's **10,000-element search window** is why full sync iterates month by month rather than
 paging until empty, with progress in `SyncJob.cursor` so a failure resumes.
@@ -260,13 +263,13 @@ frontend/src/
 | Task | Cadence | Guard |
 | --- | --- | --- |
 | `lexware.sync_incremental` | `LEXWARE_SYNC_INTERVAL_MINUTES` (30) | no-op when disabled |
-| `clockodo.sync_incremental` | `CLOCKODO_SYNC_INTERVAL_MINUTES` (15) | no-op when disabled |
+| `clockify.sync_incremental` | `CLOCKIFY_SYNC_INTERVAL_MINUTES` (15) | no-op when disabled |
 | `process_pending_webhook_events` | every 5 min | retries failed events |
 | `finance.create_monthly_reserve_snapshot` | 1st of month, 03:00 | — |
 
 Incremental syncs use a **5-minute overlap** against the last success to absorb clock skew;
 idempotency makes the overlap free. The periodic sync is also the **backstop** that guarantees
-eventual consistency when a webhook is missed — which matters, because Clockodo documents no
+eventual consistency when a webhook is missed — which matters, because Clockify documents no
 retry/ordering guarantees at all.
 
 ## 8. What is deliberately *not* here
@@ -284,5 +287,5 @@ retry/ordering guarantees at all.
 
 * [data-model.md](data-model.md) — every model and field
 * [integrations/lexware.md](integrations/lexware.md) — verified API contract, traps, UNVERIFIED flags
-* [integrations/clockodo.md](integrations/clockodo.md) — same, and the v3/v4 correction
+* [integrations/clockify.md](integrations/clockify.md) — same, plus sync directions and the Lexware dedup rule
 * [../IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md) — phase plan and stack decisions

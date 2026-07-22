@@ -211,13 +211,17 @@ export interface ChecklistItem {
 // Projects & boards
 // ---------------------------------------------------------------------------
 
-export function useProjects(params: { client?: string; search?: string; status?: string } = {}) {
+export function useProjects(
+  params: { client?: string; search?: string; status?: string } = {},
+  options: { enabled?: boolean } = {},
+) {
   return useQuery({
     queryKey: ['projects', params],
     queryFn: () =>
       api.get<Paginated<Project>>('/projects/', {
         query: { ...params, page_size: 100 },
       }),
+    enabled: options.enabled ?? true,
   });
 }
 

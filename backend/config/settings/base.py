@@ -318,7 +318,7 @@ SPECTACULAR_SETTINGS = {
     "TITLE": "Coreflow API",
     "DESCRIPTION": (
         "Central business management system: CRM, projects, time tracking, "
-        "invoicing, finance forecasting, and Lexware/Clockodo integration."
+        "invoicing, finance forecasting, and Lexware/Clockify integration."
     ),
     "VERSION": "0.1.0",
     "SERVE_INCLUDE_SCHEMA": False,
@@ -391,6 +391,9 @@ TIME_ROUNDING_STRATEGY = env.str("TIME_ROUNDING_STRATEGY", "nearest")  # nearest
 # ---------------------------------------------------------------------------
 LEXWARE_ENABLED = env.bool("LEXWARE_ENABLED", False)
 LEXWARE_API_BASE_URL = env.str("LEXWARE_API_BASE_URL", "https://api.lexware.io")
+# Web-app base for permalinks (…/permalink/invoices/view/{id}) — the API can
+# never render draft PDFs, so the UI deep-links into Lexware instead.
+LEXWARE_APP_BASE_URL = env.str("LEXWARE_APP_BASE_URL", "https://app.lexware.de")
 LEXWARE_API_KEY = env.str("LEXWARE_API_KEY", "")
 LEXWARE_WEBHOOK_PUBLIC_URL = env.str("LEXWARE_WEBHOOK_PUBLIC_URL", "")
 LEXWARE_WEBHOOK_SECRET = env.str("LEXWARE_WEBHOOK_SECRET", "")
@@ -401,16 +404,20 @@ LEXWARE_CREATE_FINAL_INVOICES = env.bool("LEXWARE_CREATE_FINAL_INVOICES", False)
 LEXWARE_TIMEOUT_SECONDS = env.float("LEXWARE_TIMEOUT_SECONDS", 30.0)
 LEXWARE_MAX_RETRIES = env.int("LEXWARE_MAX_RETRIES", 4)
 
-CLOCKODO_ENABLED = env.bool("CLOCKODO_ENABLED", False)
-CLOCKODO_API_BASE_URL = env.str("CLOCKODO_API_BASE_URL", "https://my.clockodo.com/api")
-CLOCKODO_API_USER = env.str("CLOCKODO_API_USER", "")
-CLOCKODO_API_KEY = env.str("CLOCKODO_API_KEY", "")
-CLOCKODO_EXTERNAL_APP_NAME = env.str("CLOCKODO_EXTERNAL_APP_NAME", "Coreflow")
-CLOCKODO_EXTERNAL_APP_EMAIL = env.str("CLOCKODO_EXTERNAL_APP_EMAIL", "")
-CLOCKODO_WEBHOOK_TOKEN = env.str("CLOCKODO_WEBHOOK_TOKEN", "")
-CLOCKODO_SYNC_INTERVAL_MINUTES = env.int("CLOCKODO_SYNC_INTERVAL_MINUTES", 15)
-CLOCKODO_TIMEOUT_SECONDS = env.float("CLOCKODO_TIMEOUT_SECONDS", 30.0)
-CLOCKODO_MAX_RETRIES = env.int("CLOCKODO_MAX_RETRIES", 4)
+CLOCKIFY_ENABLED = env.bool("CLOCKIFY_ENABLED", False)
+CLOCKIFY_API_BASE_URL = env.str("CLOCKIFY_API_BASE_URL", "https://api.clockify.me/api/v1")
+CLOCKIFY_API_KEY = env.str("CLOCKIFY_API_KEY", "")
+# Empty ⇒ resolved from the API key's user (activeWorkspace) on first use.
+CLOCKIFY_WORKSPACE_ID = env.str("CLOCKIFY_WORKSPACE_ID", "")
+# Comma-separated: Clockify issues ONE signing token per webhook, and Coreflow
+# needs several webhooks (one per event type), all pointing at the same URL.
+CLOCKIFY_WEBHOOK_TOKEN = env.str("CLOCKIFY_WEBHOOK_TOKEN", "")
+CLOCKIFY_SYNC_INTERVAL_MINUTES = env.int("CLOCKIFY_SYNC_INTERVAL_MINUTES", 15)
+# Unlinked local entries younger than this are pushed to Clockify — the window
+# keeps a fresh connection from dump-loading years of history.
+CLOCKIFY_PUSH_LOOKBACK_DAYS = env.int("CLOCKIFY_PUSH_LOOKBACK_DAYS", 30)
+CLOCKIFY_TIMEOUT_SECONDS = env.float("CLOCKIFY_TIMEOUT_SECONDS", 30.0)
+CLOCKIFY_MAX_RETRIES = env.int("CLOCKIFY_MAX_RETRIES", 4)
 
 # ---------------------------------------------------------------------------
 # Security headers (tightened further in prod.py)

@@ -20,7 +20,7 @@ class ClientStatus(models.TextChoices):
 
 
 class Client(WorkspaceScopedModel, BaseModel):
-    """A customer. Lexware/Clockodo mapping lives in ExternalObjectLink, not here."""
+    """A customer. Lexware/Clockify mapping lives in ExternalObjectLink, not here."""
 
     name = models.CharField(max_length=200)
     short_name = models.CharField(max_length=50, blank=True)

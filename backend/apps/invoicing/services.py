@@ -291,17 +291,17 @@ def cancel_invoice(invoice: Invoice) -> None:
 def mark_entries_billed(invoice: Invoice) -> None:
     """Move an invoice's entries to ``billed`` — called once it is finalised.
 
-    Entries that originated in Clockodo are mirrored there as ``billable=2``
-    via a retried background task (clockodo.md §5.7) — after commit, so a
-    provider outage can never roll back the local billing state.
+    Entries linked to Clockify are tagged "Abgerechnet" there via a retried
+    background task (clockify.md §5.6) — after commit, so a provider outage
+    can never roll back the local billing state.
     """
     entry_ids = list(invoice.invoice_time_entries.values_list("time_entry_id", flat=True))
     TimeEntry.objects.filter(pk__in=entry_ids).update(billing_status=BillingStatus.BILLED)
 
     from django.conf import settings
 
-    if settings.CLOCKODO_ENABLED and entry_ids:
-        from apps.integrations.clockodo.tasks import push_entries_billed
+    if settings.CLOCKIFY_ENABLED and entry_ids:
+        from apps.integrations.clockify.tasks import push_entries_billed
 
         workspace_id = str(invoice.workspace_id)
         ids = [str(pk) for pk in entry_ids]

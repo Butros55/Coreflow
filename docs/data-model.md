@@ -62,12 +62,12 @@ The mapping between a local object and its remote counterpart. **The reason ther
 
 | Field | Notes |
 | --- | --- |
-| `provider` | `lexware` \| `clockodo` |
+| `provider` | `lexware` \| `clockify` |
 | `resource_type` | `contact`, `invoice`, `entry`, … (provider-side name) |
 | `local_object_type` | Django label, e.g. `crm.Client` |
 | `local_object_id` | UUID (untyped — every PK is a UUID; contenttypes joins aren't worth it) |
 | `external_id` | remote id |
-| `external_version` | Lexware `version`; Clockodo has none |
+| `external_version` | Lexware `version`; Clockify has none |
 | `sync_hash` | `sha256:` of the normalised remote payload |
 | `last_synced_at`, `last_remote_modified_at` | |
 | `deleted_remotely` | tombstone rather than a local delete |
@@ -121,7 +121,7 @@ Both snapshots are kept so a human can see exactly what diverged. No auto-merge.
 `payment_term_days`, `default_currency`, `notes`, `tags` (M2M), `acquisition_source`,
 `customer_since`, `archived`.
 
-Lexware/Clockodo mapping lives in `ExternalObjectLink`, **not** here.
+Lexware/Clockify mapping lives in `ExternalObjectLink`, **not** here.
 
 > Lexware write constraint that shapes this: a contact accepts **at most one entry per list** (one
 > billing address, one per email/phone type, one contact person). Coreflow keeps the richer model
@@ -187,7 +187,7 @@ hourly rate, formula.
 
 ### `timetracking.ServiceType`
 `name`, `description`, `default_hourly_rate`, `default_invoice_text`, `active`.
-Maps to a Clockodo *service* when that integration is on.
+Maps to a Clockify *tag* when that integration is on.
 
 ### `timetracking.TimeEntry`
 

@@ -36,6 +36,48 @@ class ServiceTypeViewSet(WorkspaceScopedViewSet):
     filterset_fields = {"active": ["exact"]}
     ordering = ["name"]
 
+    @action(detail=True, methods=["post"], url_path="apply-rate")
+    def apply_rate(self, request: Request, pk: str | None = None) -> Response:
+        """Re-price the still-open time of this service type.
+
+        Rates are snapshotted onto entries on purpose — billed work must never
+        reprice itself. This action is the explicit, opt-in exception: after a
+        rate change it re-resolves the rate for OPEN and MARKED entries only,
+        through the normal hierarchy (project > client > service type >
+        workspace), so entries whose rate comes from a more specific level are
+        untouched.
+        """
+        from apps.timetracking.models import BillingStatus
+
+        service_type = self.get_object()
+        entries = TimeEntry.objects.filter(
+            workspace=service_type.workspace,
+            service_type=service_type,
+            billing_status__in=[BillingStatus.OPEN, BillingStatus.MARKED],
+        ).select_related("client", "project")
+
+        updated = 0
+        with transaction.atomic():
+            for entry in entries:
+                rate = resolve_hourly_rate(
+                    workspace=service_type.workspace,
+                    client=entry.client,
+                    project=entry.project,
+                    service_type=service_type,
+                )
+                amount = compute_amount(
+                    duration_seconds=entry.duration_seconds,
+                    hourly_rate=rate,
+                    billable=entry.billable,
+                )
+                if rate != entry.hourly_rate or amount != entry.computed_amount:
+                    entry.hourly_rate = rate
+                    entry.computed_amount = amount
+                    entry.save(update_fields=["hourly_rate", "computed_amount", "updated_at"])
+                    updated += 1
+
+        return Response({"updated": updated, "considered": entries.count()})
+
 
 class TimeEntryFilter(django_filters.FilterSet):
     # Half-open interval [from, to) over started_at, sent as ISO datetimes.
@@ -67,10 +109,29 @@ def _active_invoice_links_prefetch() -> Any:
     )
 
 
+def _has_clockify_link_annotation() -> Any:
+    """EXISTS subquery feeding the serializer's ``integration_tags`` — one
+    join instead of one query per row."""
+    from django.db.models import Exists, OuterRef
+
+    from apps.integrations.models import ExternalObjectLink, Provider
+
+    return Exists(
+        ExternalObjectLink.objects.filter(
+            provider=Provider.CLOCKIFY,
+            resource_type="entry",
+            local_object_id=OuterRef("pk"),
+            deleted_remotely=False,
+        )
+    )
+
+
 class TimeEntryViewSet(WorkspaceScopedViewSet):
-    queryset = TimeEntry.objects.select_related(
-        "client", "project", "task", "service_type", "user"
-    ).prefetch_related(_active_invoice_links_prefetch())
+    queryset = (
+        TimeEntry.objects.select_related("client", "project", "task", "service_type", "user")
+        .prefetch_related(_active_invoice_links_prefetch())
+        .annotate(has_clockify_link=_has_clockify_link_annotation())
+    )
     serializer_class = TimeEntrySerializer
     filterset_class = TimeEntryFilter
     search_fields = ["description", "client__name", "project__name"]
@@ -80,6 +141,29 @@ class TimeEntryViewSet(WorkspaceScopedViewSet):
 
     def extra_create_kwargs(self) -> dict[str, Any]:
         return {"user": require_user(self.request)}
+
+    # ------------------------------------------------------- Clockify mirror
+    # Local changes are mirrored to Clockify immediately (on commit, via
+    # Celery). Sync-engine writes do not pass through these views, so there is
+    # no echo loop by construction.
+
+    def perform_create(self, serializer: Any) -> None:
+        super().perform_create(serializer)
+        from apps.integrations.clockify.hooks import schedule_entry_push
+
+        schedule_entry_push(serializer.instance)
+
+    def perform_update(self, serializer: Any) -> None:
+        serializer.save()
+        from apps.integrations.clockify.hooks import schedule_entry_push
+
+        schedule_entry_push(serializer.instance)
+
+    def perform_destroy(self, instance: TimeEntry) -> None:
+        from apps.integrations.clockify.hooks import schedule_entry_deletion
+
+        schedule_entry_deletion(instance)  # before delete — the link must still exist
+        instance.delete()
 
     # --------------------------------------------------------------- exports
 
@@ -291,5 +375,9 @@ class TimeEntryViewSet(WorkspaceScopedViewSet):
                     "updated_at",
                 ]
             )
+            from apps.integrations.clockify.hooks import schedule_entry_push
+
+            # A stopped timer is a complete entry — mirror it right away.
+            schedule_entry_push(entry)
 
         return Response(self.get_serializer(entry).data)

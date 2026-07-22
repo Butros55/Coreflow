@@ -76,7 +76,7 @@ class TestActionAuditing:
     ) -> None:
         conflict = SyncConflict.objects.create(
             workspace=workspace,
-            provider=Provider.CLOCKODO,
+            provider=Provider.CLOCKIFY,
             resource_type="entry",
             local_object_type="timetracking.TimeEntry",
         )

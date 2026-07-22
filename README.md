@@ -3,8 +3,8 @@
 Central business management system for a self-employed software developer in Germany.
 
 CRM, projects, sprints, tasks, time tracking, invoicing, Lexware Office integration, optional
-Clockodo sync, appointments, revenue analysis and tax/reserve forecasting — in one application,
-instead of switching between Lexware, Clockodo, spreadsheets, a calendar and a project tool.
+Clockify sync, appointments, revenue analysis and tax/reserve forecasting — in one application,
+instead of switching between Lexware, Clockify, spreadsheets, a calendar and a project tool.
 
 > **Status:** all core phases delivered. Every navigation page is functional: dashboard, my tasks,
 > clients (incl. client dashboard + GDPR tools), projects, kanban boards, time tracking with timer,
@@ -19,7 +19,7 @@ instead of switching between Lexware, Clockodo, spreadsheets, a calendar and a p
 * **Projects & boards** — kanban with persisted drag-and-drop ordering, sprints, task drawer with
   comments/checklists, deep-linkable URLs.
 * **Time tracking** — DB-enforced single running timer, manual entries, configurable rounding,
-  billing lifecycle from *open* to *billed*; works fully without Clockodo.
+  billing lifecycle from *open* to *billed*; works fully without Clockify.
 * **Invoicing** — select open entries → grouped, editable draft → **Lexware draft** (never a final
   invoice unless you explicitly opt in) → status/number/payment mirrored back; double billing is
   blocked by a database constraint.
@@ -53,7 +53,7 @@ That creates `.env`, builds the images, runs migrations, and loads demo data. Wh
 Log in with the demo credentials `make setup` prints (default:
 `demo@coreflow.local` / `coreflow-demo-1234`).
 
-**No API credentials are required.** Lexware and Clockodo ship **disabled**; everything runs on
+**No API credentials are required.** Lexware and Clockify ship **disabled**; everything runs on
 local demo data until you choose to connect them.
 
 ### Ports already in use?
@@ -135,7 +135,7 @@ make bash    # shell in backend    make schema  # write the OpenAPI schema
 | [docs/architecture.md](docs/architecture.md) | System design, ownership boundaries, integration layer, what's deliberately absent |
 | [docs/data-model.md](docs/data-model.md) | Every model and field, constraints, and the reasoning behind them |
 | [docs/integrations/lexware.md](docs/integrations/lexware.md) | Verified Lexware API contract, traps, and what remains UNVERIFIED |
-| [docs/integrations/clockodo.md](docs/integrations/clockodo.md) | Verified Clockodo API contract, incl. the v3/v4 correction |
+| [docs/integrations/clockify.md](docs/integrations/clockify.md) | Clockify API contract, sync directions, and the Lexware dedup rule |
 
 The two integration documents were written from the **official API documentation**, not from
 assumptions, and they flag every point where the documentation is silent or self-contradictory.
@@ -151,8 +151,8 @@ browser ──▶ Next.js (:3000) ──▶ Django/DRF (:8000) ──┬─▶ P
                                                      ├─▶ Celery       sync, webhooks
                                                      └─▶ MinIO/S3     files
 
-Celery ──▶ Lexware Office · Clockodo   (outbound only)
-Clockodo ──▶ POST /webhooks/clockodo/          (inbound, token-verified)
+Celery ──▶ Lexware Office · Clockify   (outbound only)
+Clockify ──▶ POST /webhooks/clockify/          (inbound, signature-verified)
 ```
 
 **Who owns what** — the decision everything else follows from:
@@ -161,8 +161,9 @@ Clockodo ──▶ POST /webhooks/clockodo/          (inbound, token-verified)
   files, forecasts, settings.
 * **Lexware** owns invoice numbers, finalised invoices, invoice status, PDFs, payments, open
   amounts, bookkeeping vouchers. Coreflow **mirrors** these and never invents them.
-* **Clockodo** is **optional** and owns only what originates there. The internal time tracking is
-  the primary implementation and works forever with `CLOCKODO_ENABLED=false`.
+* **Clockify** is **optional** and mirrored **both ways**: projects, clients, tags and time
+  entries stay in step in both systems. The internal time tracking is the primary implementation
+  and works forever with `CLOCKIFY_ENABLED=false`.
 
 No request path calls an external provider — all provider I/O runs in Celery, so a slow Lexware
 degrades one feature instead of hanging the app.
@@ -194,21 +195,26 @@ Two things worth knowing before you switch it on:
 Full setup, webhook configuration and the verified API contract:
 [docs/integrations/lexware.md](docs/integrations/lexware.md).
 
-### Clockodo
+### Clockify
 
 ```bash
-CLOCKODO_ENABLED=true
-CLOCKODO_API_USER=<your account email>
-CLOCKODO_API_KEY=<Clockodo → "Personal data">
-CLOCKODO_EXTERNAL_APP_EMAIL=<technical contact>   # required — every request fails without it
+CLOCKIFY_ENABLED=true
+CLOCKIFY_API_KEY=<Clockify → Profile settings → "Manage API keys">
 ```
 
-* **Webhooks cannot be registered via the API.** Clockodo has no subscription endpoint: you create
-  the webhook in the Clockodo UI, and it sends a secret that a human must paste back. The
-  integration centre shows you the secret when it arrives.
+* **Two-way sync.** Clients, projects, tags (= Leistungsarten) and time entries are mirrored in
+  both directions: changes in Clockify land in Coreflow (webhooks make that near-instant, the
+  15-minute sync is the backstop), and entries/projects created in Coreflow are uploaded to
+  Clockify on commit.
+* **No duplicates with Lexware.** An entry that exists in Lexware *and* Clockify becomes ONE local
+  entry carrying both tags — the Lexware import and the Clockify sync recognise each other's
+  entries instead of double-counting hours.
+* **Webhooks are created manually** in the Clockify UI (workspace settings → Webhooks): one webhook
+  per event type, all pointing at `<API_URL>/webhooks/clockify/`, with every signing token listed
+  comma-separated in `CLOCKIFY_WEBHOOK_TOKEN`.
 * Coreflow's time tracking does not depend on any of this.
 
-Details: [docs/integrations/clockodo.md](docs/integrations/clockodo.md).
+Details: [docs/integrations/clockify.md](docs/integrations/clockify.md).
 
 ---
 
@@ -234,7 +240,7 @@ npm run dev
 
 Tests run without Docker too — `uv run pytest` needs only a reachable PostgreSQL. The test settings
 **force both integrations off** and block real network calls, so the suite can never reach a live
-Lexware or Clockodo account.
+Lexware or Clockify account.
 
 ---
 
@@ -262,7 +268,7 @@ The dev compose file is for development. For a production deployment:
 * Terminate TLS in a reverse proxy (Caddy/nginx/Traefik) and forward `X-Forwarded-Proto: https` —
   `SECURE_PROXY_SSL_HEADER` and HSTS (1 year, preload) are already configured.
 * Set `APP_URL`/`API_URL` to the public HTTPS origins; they drive CORS, CSRF and webhook URLs.
-* Webhook endpoints must be publicly reachable (`/webhooks/clockodo/`); everything else can sit
+* Webhook endpoints must be publicly reachable (`/webhooks/clockify/`); everything else can sit
   behind whatever access restrictions you like.
 * Postgres and Redis should not publish ports publicly. MinIO can be replaced by any S3 bucket via
   the `OBJECT_STORAGE_*` variables.
@@ -280,9 +286,9 @@ The dev compose file is for development. For a production deployment:
 | Browser shows `net::ERR_FAILED` on API calls | `API_URL` doesn't match the published backend port. Leave `APP_URL`/`API_URL` empty in dev — compose derives them. |
 | Login loops back to the login page | Stale cookies from a different port/origin. Clear cookies for `localhost`, reload. |
 | "Lexware ist nicht aktiviert" when sending an invoice | Expected with `LEXWARE_ENABLED=false`: the draft stays local and fully editable. Enable the integration to transfer it. |
-| Connection test fails with 401 | Wrong/rotated API key. Lexware: regenerate under *Public API*; note that rotation kills webhook subscriptions. Clockodo: key is under *Personal data*, and `CLOCKODO_EXTERNAL_APP_EMAIL` must be set. |
-| Clockodo sync runs but no entries appear | Check the user mapping: entries are only imported for Clockodo users whose e-mail matches a workspace member. The sync-job counters in the integration centre show what was skipped. |
-| Webhook returns 404 | `CLOCKODO_ENABLED=false` — the endpoint stays dark while disabled. |
+| Connection test fails with 401 | Wrong/rotated API key. Lexware: regenerate under *Public API*; note that rotation kills webhook subscriptions. Clockify: the key lives under *Profile settings → Manage API keys*. |
+| Clockify sync runs but no entries appear | Check the user mapping: entries are only imported for Clockify members whose e-mail matches a workspace member. Entries without a Clockify project land on the placeholder client "Clockify (ohne Kunde)" — assign projects in Clockify for proper client mapping. The sync-job counters in the integration centre show what was skipped. |
+| Webhook returns 404 or 403 | 404: `CLOCKIFY_ENABLED=false` — the endpoint stays dark while disabled. 403: the `clockify-signature` token is not listed in `CLOCKIFY_WEBHOOK_TOKEN` (comma-separated, one per webhook). |
 | A page that exists shows Next.js "404 — This page could not be found" | Stale compiled routes in the cached `.next` volume after a code update. Run `make frontend-clean`. |
 | Detail page says "… nicht gefunden" | The id no longer exists: deleted, from another workspace (switch top-left), or from a previous seed (`make seed-reset` regenerates all ids — old tabs/bookmarks go stale). |
 | Sync conflict shown in the integration centre | Local and remote changed concurrently (or a billed entry changed remotely). Nothing was overwritten — pick local/remote/ignore; the decision is audit-logged. |

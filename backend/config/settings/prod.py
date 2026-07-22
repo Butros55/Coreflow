@@ -64,9 +64,5 @@ LOGGING = {
 if env.bool("LEXWARE_ENABLED", False) and not env.str("LEXWARE_API_KEY", ""):
     raise ImproperlyConfigured("LEXWARE_ENABLED=true requires LEXWARE_API_KEY.")
 
-if env.bool("CLOCKODO_ENABLED", False) and not (
-    env.str("CLOCKODO_API_USER", "") and env.str("CLOCKODO_API_KEY", "")
-):
-    raise ImproperlyConfigured(
-        "CLOCKODO_ENABLED=true requires CLOCKODO_API_USER and CLOCKODO_API_KEY."
-    )
+if env.bool("CLOCKIFY_ENABLED", False) and not env.str("CLOCKIFY_API_KEY", ""):
+    raise ImproperlyConfigured("CLOCKIFY_ENABLED=true requires CLOCKIFY_API_KEY.")

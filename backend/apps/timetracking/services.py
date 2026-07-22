@@ -1,7 +1,7 @@
 """Time-entry domain logic: rate resolution, rounding, amount computation.
 
 Kept out of views and serializers so the timer endpoints, manual entry, the
-future Clockodo import and tests all share exactly one implementation.
+Clockify import and tests all share exactly one implementation.
 """
 
 from __future__ import annotations

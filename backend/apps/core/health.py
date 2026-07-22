@@ -79,7 +79,7 @@ class ReadinessView(APIView):
 
         checks["integrations"] = {
             "lexware": "enabled" if settings.LEXWARE_ENABLED else "disabled",
-            "clockodo": "enabled" if settings.CLOCKODO_ENABLED else "disabled",
+            "clockify": "enabled" if settings.CLOCKIFY_ENABLED else "disabled",
         }
 
         return Response(

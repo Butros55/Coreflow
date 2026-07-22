@@ -37,9 +37,9 @@ def _provider_status(workspace: Any, provider: str) -> dict[str, Any]:
         configured = bool(settings.LEXWARE_API_KEY)
         webhook_configured = bool(settings.LEXWARE_WEBHOOK_SECRET)
     else:
-        enabled = settings.CLOCKODO_ENABLED
-        configured = bool(settings.CLOCKODO_API_USER and settings.CLOCKODO_API_KEY)
-        webhook_configured = bool(settings.CLOCKODO_WEBHOOK_TOKEN)
+        enabled = settings.CLOCKIFY_ENABLED
+        configured = bool(settings.CLOCKIFY_API_KEY)
+        webhook_configured = bool(settings.CLOCKIFY_WEBHOOK_TOKEN)
 
     profile = ProviderProfile.objects.filter(workspace=workspace, provider=provider).first()
     last_success = (
@@ -61,23 +61,11 @@ def _provider_status(workspace: Any, provider: str) -> dict[str, Any]:
     webhook_events = WebhookEvent.objects.filter(workspace=workspace, provider=provider).count()
 
     extra: dict[str, Any] = {}
-    if provider == Provider.CLOCKODO:
-        # Webhook setup is a manual step in Clockodo's UI (clockodo.md §7):
-        # the user pastes THIS URL there, and Clockodo answers with a handshake
-        # secret that must be pasted back — so both are surfaced here.
-        extra["webhook_url"] = f"{settings.API_URL.rstrip('/')}/webhooks/clockodo/"
-        handshake = (
-            WebhookEvent.objects.filter(
-                workspace=workspace,
-                provider=Provider.CLOCKODO,
-                event_type="webhook.handshake",
-            )
-            .order_by("-received_at")
-            .first()
-        )
-        extra["webhook_handshake_secret"] = (
-            str(handshake.payload.get("secret", "")) if handshake else ""
-        )
+    if provider == Provider.CLOCKIFY:
+        # Webhook setup is a manual step in Clockify's UI (clockify.md §6):
+        # the user creates one webhook PER event type, all pointing at THIS
+        # URL, and collects the signing tokens into CLOCKIFY_WEBHOOK_TOKEN.
+        extra["webhook_url"] = f"{settings.API_URL.rstrip('/')}/webhooks/clockify/"
 
     return {
         "provider": provider,
@@ -121,7 +109,7 @@ class IntegrationStatusView(APIView):
         return Response(
             {
                 "lexware": _provider_status(workspace, Provider.LEXWARE),
-                "clockodo": _provider_status(workspace, Provider.CLOCKODO),
+                "clockify": _provider_status(workspace, Provider.CLOCKIFY),
             }
         )
 
@@ -136,11 +124,11 @@ class TestConnectionView(APIView):
         if workspace is None:
             return Response({"detail": "Kein Workspace."}, status=http_status.HTTP_403_FORBIDDEN)
 
-        if provider in (Provider.LEXWARE, Provider.CLOCKODO):
+        if provider in (Provider.LEXWARE, Provider.CLOCKIFY):
             response = (
                 self._test_lexware(workspace)
                 if provider == Provider.LEXWARE
-                else self._test_clockodo(workspace)
+                else self._test_clockify(workspace)
             )
             record_audit(
                 request,
@@ -189,28 +177,40 @@ class TestConnectionView(APIView):
             }
         )
 
-    def _test_clockodo(self, workspace: Any) -> Response:
-        from apps.integrations.clockodo.client import ClockodoClient, is_clockodo_enabled
+    def _test_clockify(self, workspace: Any) -> Response:
+        from apps.integrations.clockify.client import ClockifyClient, is_clockify_enabled
 
-        if not is_clockodo_enabled():
-            return self._disabled("Clockodo")
+        if not is_clockify_enabled():
+            return self._disabled("Clockify")
         try:
-            with ClockodoClient() as client:
-                me = client.get_users_me()
+            with ClockifyClient() as client:
+                me = client.get_current_user()
+                remote_workspace_id = client.workspace_id
+                remote_workspace = next(
+                    (
+                        w
+                        for w in client.list_workspaces()
+                        if str(w.get("id")) == remote_workspace_id
+                    ),
+                    {},
+                )
         except Exception as exc:
             return self._failed(str(exc))
 
-        data = me.get("data", me)
+        # raw_profile["user"]["id"] is load-bearing: the entry push uses it to
+        # decide between "own user" and "add time for others" endpoints.
+        company_name = str(remote_workspace.get("name") or me.get("name") or "")
         ProviderProfile.objects.update_or_create(
             workspace=workspace,
-            provider=Provider.CLOCKODO,
+            provider=Provider.CLOCKIFY,
             defaults={
-                "company_name": data.get("name", ""),
-                "raw_profile": me,
+                "external_organization_id": remote_workspace_id,
+                "company_name": company_name,
+                "raw_profile": {"user": me, "workspace": remote_workspace},
                 "fetched_at": timezone.now(),
             },
         )
-        return Response({"ok": True, "company_name": data.get("name", "")})
+        return Response({"ok": True, "company_name": company_name})
 
     @staticmethod
     def _disabled(name: str) -> Response:
@@ -248,13 +248,13 @@ class TriggerSyncView(APIView):
             return Response({"detail": "Kein Workspace."}, status=http_status.HTTP_403_FORBIDDEN)
         user = require_user(request)
 
-        if provider == Provider.CLOCKODO:
-            from apps.integrations.clockodo.client import is_clockodo_enabled
-            from apps.integrations.clockodo.tasks import sync_clockodo_full
+        if provider == Provider.CLOCKIFY:
+            from apps.integrations.clockify.client import is_clockify_enabled
+            from apps.integrations.clockify.tasks import sync_clockify_full
 
-            if not is_clockodo_enabled():
-                return TestConnectionView._disabled("Clockodo")
-            sync_clockodo_full.delay(str(workspace.pk), str(user.pk))
+            if not is_clockify_enabled():
+                return TestConnectionView._disabled("Clockify")
+            sync_clockify_full.delay(str(workspace.pk), str(user.pk))
             record_audit(
                 request, "integration.sync_triggered", workspace=workspace, provider=provider
             )

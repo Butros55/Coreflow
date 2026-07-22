@@ -1,7 +1,7 @@
 """Attach time entries to invoices imported from Lexware.
 
 The full import mirrors historical invoices — but the hours they billed often
-still sit in Coreflow as "open" (tracked locally or imported from Clockodo) and
+still sit in Coreflow as "open" (tracked locally or imported from Clockify) and
 would look unbilled forever. This module assigns invoice lines to those entries
 after the mirror is created.
 
@@ -166,8 +166,8 @@ def match_invoice_time_entries(invoice: Invoice, *, fallback_user: User | None =
             billing_status=BillingStatus.DRAFT_CREATED
         )
     else:
-        # Finalised in Lexware → billed here (also pushes billable=2 for
-        # Clockodo-sourced entries, same as the local finalisation path).
+        # Finalised in Lexware → billed here (also tags Clockify-linked
+        # entries "Abgerechnet", same as the local finalisation path).
         mark_entries_billed(invoice)
 
     logger.info(

@@ -3,15 +3,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
-from django.db.models import Sum
+from django.db.models import Max, Q, Sum
 from django.utils import timezone
 
 from apps.core.money import money
-from apps.finance.models import DISCLAIMER, ReserveSnapshot, TaxProfile, TaxRuleSet
+from apps.finance.models import (
+    DISCLAIMER,
+    ReserveSnapshot,
+    ReserveTransfer,
+    TaxProfile,
+    TaxRuleSet,
+)
 from apps.finance.tax import compute_taxes
 from apps.invoicing.models import Invoice, InvoiceStatus
 from apps.timetracking.models import BillingStatus, TimeEntry
@@ -128,6 +134,255 @@ def compute_kpis(workspace: Any, today: date | None = None) -> FinanceKPIs:
     )
 
 
+FINALISED = [InvoiceStatus.OPEN, InvoiceStatus.OVERDUE, InvoiceStatus.PAID]
+
+
+def _month_start(value: date) -> date:
+    return value.replace(day=1)
+
+
+def _shift_month(value: date, offset: int) -> date:
+    month_index = value.year * 12 + (value.month - 1) + offset
+    return date(month_index // 12, month_index % 12 + 1, 1)
+
+
+def business_report(workspace: Any, today: date | None = None) -> dict[str, Any]:
+    """The internal ERP view: every number the system knows, made comparable.
+
+    One endpoint on purpose — the report page renders in a single request, and
+    every figure here derives from the same base querysets so cards cannot
+    contradict each other. All money leaves as strings (JSON floats round).
+    """
+    from django.db.models.functions import TruncMonth
+
+    from apps.crm.models import Client
+    from apps.projects.models import Project
+
+    today = today or timezone.localdate()
+    year_start = date(today.year, 1, 1)
+    window_start = _shift_month(today, -11)  # 12 months incl. the current one
+    last_90 = today - timedelta(days=90)
+
+    invoices = Invoice.objects.filter(workspace=workspace)
+    entries = TimeEntry.objects.filter(workspace=workspace, ended_at__isnull=False)
+    kpis = compute_kpis(workspace, today)
+
+    # ---- Monthly series -----------------------------------------------------
+    invoiced_by_month = {
+        row["month"].date() if hasattr(row["month"], "date") else row["month"]: row
+        for row in invoices.filter(status__in=FINALISED, invoice_date__gte=window_start)
+        .annotate(month=TruncMonth("invoice_date"))
+        .values("month")
+        .annotate(
+            net=Sum("net_amount"), paid=Sum("net_amount", filter=Q(status=InvoiceStatus.PAID))
+        )
+    }
+    hours_by_month = {
+        row["month"].date() if hasattr(row["month"], "date") else row["month"]: row
+        for row in entries.filter(started_at__date__gte=window_start)
+        .annotate(month=TruncMonth("started_at"))
+        .values("month")
+        .annotate(
+            seconds=Sum("duration_seconds"),
+            billable_seconds=Sum("duration_seconds", filter=Q(billable=True), default=0),
+        )
+    }
+
+    months = []
+    for offset in range(-11, 1):
+        month = _shift_month(today, offset)
+        invoiced_row = invoiced_by_month.get(month, {})
+        hours_row = hours_by_month.get(month, {})
+        months.append(
+            {
+                "month": month.isoformat(),
+                "invoiced_net": str(money(invoiced_row.get("net") or 0)),
+                "paid_net": str(money(invoiced_row.get("paid") or 0)),
+                "seconds": hours_row.get("seconds") or 0,
+                "billable_seconds": hours_row.get("billable_seconds") or 0,
+            }
+        )
+
+    # ---- Rates & behaviour --------------------------------------------------
+    billed_ytd = entries.filter(
+        billing_status=BillingStatus.BILLED, started_at__date__gte=year_start
+    ).aggregate(seconds=Sum("duration_seconds"), value=Sum("computed_amount"))
+    billed_seconds = billed_ytd["seconds"] or 0
+    effective_rate = (
+        money(Decimal(billed_ytd["value"] or 0) / (Decimal(billed_seconds) / Decimal(3600)))
+        if billed_seconds
+        else None
+    )
+
+    recent = entries.filter(started_at__date__gte=last_90).aggregate(
+        seconds=Sum("duration_seconds"),
+        billable=Sum("duration_seconds", filter=Q(billable=True), default=0),
+    )
+    billable_share = (
+        round((recent["billable"] or 0) / recent["seconds"], 4) if recent["seconds"] else None
+    )
+
+    paid_recent = invoices.filter(
+        status=InvoiceStatus.PAID,
+        paid_at__isnull=False,
+        invoice_date__isnull=False,
+        invoice_date__gte=today - timedelta(days=365),
+    ).values_list("invoice_date", "paid_at")
+    pay_spans = [(paid - issued).days for issued, paid in paid_recent if paid >= issued]
+    avg_days_to_pay = round(sum(pay_spans) / len(pay_spans), 1) if pay_spans else None
+
+    active_client_ids = set(
+        invoices.filter(status__in=FINALISED, invoice_date__gte=last_90).values_list(
+            "client_id", flat=True
+        )
+    ) | set(entries.filter(started_at__date__gte=last_90).values_list("client_id", flat=True))
+
+    # ---- Clients ------------------------------------------------------------
+    revenue_ytd = kpis.invoiced_total
+    client_rows = list(
+        invoices.filter(status__in=FINALISED, invoice_date__gte=year_start)
+        .values("client_id", "client__name")
+        .annotate(
+            net=Sum("net_amount"),
+            open_gross=Sum(
+                "open_amount",
+                filter=Q(status__in=[InvoiceStatus.OPEN, InvoiceStatus.OVERDUE]),
+                default=0,
+            ),
+        )
+        .order_by("-net")
+    )
+    client_hours = {
+        row["client_id"]: row
+        for row in entries.filter(
+            billing_status=BillingStatus.BILLED, started_at__date__gte=year_start
+        )
+        .values("client_id")
+        .annotate(seconds=Sum("duration_seconds"))
+    }
+    clients = []
+    for row in client_rows:
+        seconds = (client_hours.get(row["client_id"], {}).get("seconds")) or 0
+        net = money(row["net"] or 0)
+        clients.append(
+            {
+                "id": str(row["client_id"]),
+                "name": row["client__name"] or "—",
+                "invoiced_net": str(net),
+                "open_gross": str(money(row["open_gross"] or 0)),
+                "seconds": seconds,
+                "effective_rate": (
+                    str(money(net / (Decimal(seconds) / Decimal(3600)))) if seconds else None
+                ),
+                "share": (round(float(net / revenue_ytd), 4) if revenue_ytd and net else 0.0),
+            }
+        )
+
+    concentration = None
+    if clients and revenue_ytd:
+        top = clients[0]
+        concentration = {"client_name": top["name"], "share": top["share"]}
+
+    # ---- Services (billed work of the year, same base as revenue_breakdown) --
+    services = [
+        {
+            "name": row["service_type__name"] or "Ohne Leistungsart",
+            "value": str(money(row["value"] or 0)),
+            "seconds": row["seconds"] or 0,
+        }
+        for row in entries.filter(
+            billing_status=BillingStatus.BILLED, started_at__date__gte=year_start
+        )
+        .values("service_type__name")
+        .annotate(value=Sum("computed_amount"), seconds=Sum("duration_seconds"))
+        .order_by("-value")
+    ]
+
+    # ---- Project economics --------------------------------------------------
+    project_time = {
+        row["project_id"]: row
+        for row in entries.filter(project__isnull=False)
+        .values("project_id")
+        .annotate(
+            seconds=Sum("duration_seconds"),
+            value=Sum("computed_amount", filter=Q(billable=True), default=0),
+            unbilled_value=Sum(
+                "computed_amount",
+                filter=Q(
+                    billable=True,
+                    billing_status__in=[BillingStatus.OPEN, BillingStatus.MARKED],
+                ),
+                default=0,
+            ),
+        )
+    }
+    project_invoiced = {
+        row["project_id"]: row["net"]
+        for row in invoices.filter(status__in=FINALISED, project__isnull=False)
+        .values("project_id")
+        .annotate(net=Sum("net_amount"))
+    }
+    projects = []
+    for project in Project.objects.filter(workspace=workspace, status="active").select_related(
+        "client"
+    ):
+        time_row = project_time.get(project.pk, {})
+        seconds = time_row.get("seconds") or 0
+        budget_hours = Decimal(project.budget_hours) if project.budget_hours else None
+        projects.append(
+            {
+                "id": str(project.pk),
+                "name": project.name,
+                "client_name": project.client.display_name,
+                "seconds": seconds,
+                "budget_hours": str(budget_hours) if budget_hours is not None else None,
+                "budget_used_share": (
+                    round(float(Decimal(seconds) / Decimal(3600) / budget_hours), 4)
+                    if budget_hours
+                    else None
+                ),
+                "value": str(money(time_row.get("value") or 0)),
+                "unbilled_value": str(money(time_row.get("unbilled_value") or 0)),
+                "invoiced_net": str(money(project_invoiced.get(project.pk) or 0)),
+            }
+        )
+    projects.sort(key=lambda row: -row["seconds"])
+
+    total_clients = Client.objects.filter(workspace=workspace).count()
+
+    return {
+        "year": today.year,
+        "generated_at": timezone.now().isoformat(),
+        "months": months,
+        "kpis": {
+            "revenue_ytd": str(kpis.revenue_ytd),
+            "revenue_month": str(kpis.revenue_month),
+            "revenue_quarter": str(kpis.revenue_quarter),
+            "avg_monthly_revenue": str(
+                money(
+                    sum((Decimal(row["invoiced_net"]) for row in months), Decimal("0"))
+                    / Decimal(max(1, sum(1 for row in months if Decimal(row["invoiced_net"]) > 0)))
+                )
+            ),
+            "effective_hourly_rate": str(effective_rate) if effective_rate is not None else None,
+            "billable_share_90d": billable_share,
+            "avg_days_to_pay": avg_days_to_pay,
+            "open_receivables": str(kpis.open_receivables),
+            "overdue_receivables": str(kpis.overdue_receivables),
+            "unbilled_value": str(kpis.unbilled_value),
+            "unbilled_seconds": kpis.unbilled_seconds,
+            "draft_total": str(kpis.draft_total),
+            "active_clients_90d": len(active_client_ids),
+            "total_clients": total_clients,
+            "active_projects": len(projects),
+        },
+        "clients": clients,
+        "services": services,
+        "projects": projects,
+        "concentration": concentration,
+    }
+
+
 def revenue_breakdown(workspace: Any, year: int) -> dict[str, list[dict[str, Any]]]:
     """Billed work by client and by service type — one source for both.
 
@@ -241,10 +496,19 @@ def compute_reserve(
         vat_liability_ytd=kpis.vat_invoiced_ytd,
     )
 
-    # Prepayments already made reduce the gap, not the recommendation.
-    reserve_gap = money(
-        result.recommended_reserve - profile.existing_reserve - profile.prepayments_made
+    # The current reserve pot: the profile's opening balance plus every dated
+    # booking on the ledger. Kept as a ledger (not one mutable number) so the
+    # figure stays current and auditable without a bank connection — the
+    # Lexware Public API exposes no account balances to sync from.
+    transfer_row = ReserveTransfer.objects.filter(workspace=workspace).aggregate(
+        total=Sum("amount"),
+        last_date=Max("transfer_date"),
     )
+    transfers_total = money(transfer_row["total"] or Decimal("0.00"))
+    current_reserve = money(profile.existing_reserve + transfers_total)
+
+    # Prepayments already made reduce the gap, not the recommendation.
+    reserve_gap = money(result.recommended_reserve - current_reserve - profile.prepayments_made)
 
     return {
         "available": True,
@@ -265,7 +529,12 @@ def compute_reserve(
         "health_insurance": str(result.health_insurance),
         "safety_buffer": str(result.safety_buffer),
         "recommended_reserve": str(result.recommended_reserve),
-        "existing_reserve": str(profile.existing_reserve),
+        "existing_reserve": str(current_reserve),
+        "reserve_opening": str(money(profile.existing_reserve)),
+        "reserve_transfers_total": str(transfers_total),
+        "last_transfer_date": (
+            transfer_row["last_date"].isoformat() if transfer_row["last_date"] else None
+        ),
         "prepayments_made": str(profile.prepayments_made),
         "reserve_gap": str(reserve_gap),
         "trace": result.trace_as_json(),

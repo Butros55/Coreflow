@@ -1,9 +1,13 @@
-"""Finance serializers (tax profile + reserve snapshots)."""
+"""Finance serializers (tax profile, reserve snapshots, reserve ledger)."""
 
 from __future__ import annotations
 
+from decimal import Decimal
+
+from rest_framework import serializers
+
 from apps.core.api import WorkspaceScopedSerializer
-from apps.finance.models import ReserveSnapshot, TaxProfile
+from apps.finance.models import ReserveSnapshot, ReserveTransfer, TaxProfile
 
 
 class TaxProfileSerializer(WorkspaceScopedSerializer):
@@ -26,6 +30,28 @@ class TaxProfileSerializer(WorkspaceScopedSerializer):
             "existing_reserve",
         ]
         read_only_fields = ["id"]
+
+
+class ReserveTransferSerializer(WorkspaceScopedSerializer):
+    source_display = serializers.CharField(source="get_source_display", read_only=True)
+
+    class Meta:
+        model = ReserveTransfer
+        fields = [
+            "id",
+            "transfer_date",
+            "amount",
+            "note",
+            "source",
+            "source_display",
+            "created_at",
+        ]
+        read_only_fields = ["id", "source", "source_display", "created_at"]
+
+    def validate_amount(self, value: Decimal) -> Decimal:
+        if value == 0:
+            raise serializers.ValidationError("Betrag darf nicht 0 sein.")
+        return value
 
 
 class ReserveSnapshotSerializer(WorkspaceScopedSerializer):

@@ -16,11 +16,13 @@ import { useParams, useRouter } from 'next/navigation';
 import * as React from 'react';
 import { toast } from 'sonner';
 
+import { AssignInvoiceToProjectMenu } from '@/components/invoices/assign-invoice-menu';
 import { InvoiceStatusBadge } from '@/components/invoices/invoice-status-badge';
 import { PageHeader } from '@/components/layout/app-shell';
 import { ProjectPlanningTab } from '@/components/projects/planning-tab';
 import { ProjectFormDialog } from '@/components/projects/project-form-dialog';
 import { CreateTaskDialog } from '@/components/tasks/create-task-dialog';
+import { TaskDrawerOverlay } from '@/components/tasks/task-drawer';
 import { TaskTimeline } from '@/components/tasks/task-timeline';
 import { BillingBadge } from '@/components/time/billing-badge';
 import { AvatarStack } from '@/components/ui/avatar';
@@ -70,9 +72,9 @@ export default function ProjectDetailPage() {
   const [deleteOpen, setDeleteOpen] = React.useState(false);
   const [editOpen, setEditOpen] = React.useState(false);
   const [createTaskOpen, setCreateTaskOpen] = React.useState(false);
+  const [openTaskId, setOpenTaskId] = React.useState<string | null>(null);
   const [taskDefaults, setTaskDefaults] = React.useState<{
     sprint?: string | null;
-    phase?: string | null;
   }>({});
   const deleteProject = useDeleteProject();
   const { data: project, isLoading, error } = useProject(params.id);
@@ -81,13 +83,10 @@ export default function ProjectDetailPage() {
   const { data: invoiceData } = useInvoices({ project: params.id });
   const { data: sprintsData } = useSprints(params.id);
 
-  const openCreateTask = React.useCallback(
-    (defaults: { sprint?: string | null; phase?: string | null } = {}) => {
-      setTaskDefaults(defaults);
-      setCreateTaskOpen(true);
-    },
-    [],
-  );
+  const openCreateTask = React.useCallback((defaults: { sprint?: string | null } = {}) => {
+    setTaskDefaults(defaults);
+    setCreateTaskOpen(true);
+  }, []);
 
   if (isLoading) {
     return (
@@ -119,11 +118,8 @@ export default function ProjectDetailPage() {
   const spentAmount = Number(time.total_value);
   const remainingAmount = budgetAmount === null ? null : budgetAmount - spentAmount;
 
-  const openTask = (taskId: string) => {
-    const task = tasks.find((candidate) => candidate.id === taskId);
-    const board = task?.board ?? project.default_board;
-    if (board) router.push(`/boards/${board}?task=${taskId}`);
-  };
+  // Open tasks in the right-hand drawer, in place — no jump to the board view.
+  const openTask = (taskId: string) => setOpenTaskId(taskId);
 
   return (
     <>
@@ -280,6 +276,11 @@ export default function ProjectDetailPage() {
           </TabsContent>
         </Tabs>
       </div>
+      <TaskDrawerOverlay
+        taskId={openTaskId}
+        onClose={() => setOpenTaskId(null)}
+        onOpenTask={setOpenTaskId}
+      />
       <ProjectFormDialog open={editOpen} onOpenChange={setEditOpen} project={project} />
       {project.default_board ? (
         <CreateTaskDialog
@@ -288,7 +289,6 @@ export default function ProjectDetailPage() {
           projectId={project.id}
           boardId={project.default_board}
           defaultSprint={taskDefaults.sprint ?? null}
-          defaultPhase={taskDefaults.phase ?? null}
         />
       ) : null}
       <DeleteConfirmationDialog
@@ -561,6 +561,7 @@ function BillingTab({
   invoices: InvoiceListItem[];
 }) {
   const stats = project.stats.invoices;
+  const permissions = usePermissions();
   return (
     <>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -633,11 +634,16 @@ function BillingTab({
       <Panel>
         <PanelHeader>
           <PanelTitle>Rechnungen</PanelTitle>
-          <Button variant="ghost" size="xs" asChild>
-            <Link href="/invoices">
-              <ReceiptText aria-hidden /> Alle Rechnungen
-            </Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            {permissions.can_write ? (
+              <AssignInvoiceToProjectMenu projectId={project.id} clientId={project.client} />
+            ) : null}
+            <Button variant="ghost" size="xs" asChild>
+              <Link href="/invoices">
+                <ReceiptText aria-hidden /> Alle Rechnungen
+              </Link>
+            </Button>
+          </div>
         </PanelHeader>
         {invoices.length === 0 ? (
           <PanelBody>
