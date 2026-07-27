@@ -1,0 +1,268 @@
+# Coreflow — local development stack.
+#
+#   make up      start everything
+#   make logs    follow logs
+#   make down    stop
+#
+# Every service has a healthcheck and dependent services wait on it, so `make up`
+# either reaches a working stack or fails loudly — it never half-starts.
+
+name: coreflow
+
+x-backend-env: &backend-env
+  DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.dev}
+  DATABASE_URL: postgresql://${POSTGRES_USER:-coreflow}:${POSTGRES_PASSWORD:-coreflow}@postgres:5432/${POSTGRES_DB:-coreflow}
+  REDIS_URL: redis://redis:6379/0
+  CELERY_BROKER_URL: redis://redis:6379/1
+  SECRET_KEY: ${SECRET_KEY:-django-insecure-dev-only-key-change-me}
+  APP_ENV: ${APP_ENV:-development}
+  # Derived from the published ports so that changing BACKEND_PORT/FRONTEND_PORT
+  # (needed whenever 8000/3000 are already taken on the host) cannot leave the
+  # browser calling a port nothing is listening on. Set APP_URL/API_URL
+  # explicitly only when running behind a proxy or a real domain.
+  APP_URL: ${APP_URL:-http://localhost:${FRONTEND_PORT:-3000}}
+  API_URL: ${API_URL:-http://localhost:${BACKEND_PORT:-8000}}
+  ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,backend,0.0.0.0}
+  CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://localhost:${FRONTEND_PORT:-3000}}
+  CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:${FRONTEND_PORT:-3000}}
+  TIME_ZONE: ${TIME_ZONE:-Europe/Berlin}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  # Integrations default to OFF: the stack must boot with zero external credentials.
+  LEXWARE_ENABLED: ${LEXWARE_ENABLED:-false}
+  LEXWARE_API_BASE_URL: ${LEXWARE_API_BASE_URL:-https://api.lexware.io}
+  LEXWARE_API_KEY: ${LEXWARE_API_KEY:-}
+  LEXWARE_WEBHOOK_PUBLIC_URL: ${LEXWARE_WEBHOOK_PUBLIC_URL:-}
+  LEXWARE_WEBHOOK_SECRET: ${LEXWARE_WEBHOOK_SECRET:-}
+  LEXWARE_SYNC_INTERVAL_MINUTES: ${LEXWARE_SYNC_INTERVAL_MINUTES:-30}
+  LEXWARE_CREATE_FINAL_INVOICES: ${LEXWARE_CREATE_FINAL_INVOICES:-false}
+  CLOCKIFY_ENABLED: ${CLOCKIFY_ENABLED:-false}
+  CLOCKIFY_API_BASE_URL: ${CLOCKIFY_API_BASE_URL:-https://api.clockify.me/api/v1}
+  CLOCKIFY_API_KEY: ${CLOCKIFY_API_KEY:-}
+  CLOCKIFY_WORKSPACE_ID: ${CLOCKIFY_WORKSPACE_ID:-}
+  CLOCKIFY_WEBHOOK_TOKEN: ${CLOCKIFY_WEBHOOK_TOKEN:-}
+  CLOCKIFY_SYNC_INTERVAL_MINUTES: ${CLOCKIFY_SYNC_INTERVAL_MINUTES:-15}
+  CLOCKIFY_PUSH_LOOKBACK_DAYS: ${CLOCKIFY_PUSH_LOOKBACK_DAYS:-30}
+  # MinIO ships in the dev stack so file upload is exercised the same way as prod.
+  OBJECT_STORAGE_ENDPOINT: ${OBJECT_STORAGE_ENDPOINT:-http://minio:9000}
+  OBJECT_STORAGE_ACCESS_KEY: ${OBJECT_STORAGE_ACCESS_KEY:-coreflow}
+  OBJECT_STORAGE_SECRET_KEY: ${OBJECT_STORAGE_SECRET_KEY:-coreflow-dev-secret}
+  OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-coreflow}
+  OBJECT_STORAGE_REGION: ${OBJECT_STORAGE_REGION:-us-east-1}
+  EMAIL_HOST: ${EMAIL_HOST:-mailpit}
+  EMAIL_PORT: ${EMAIL_PORT:-1025}
+  DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-coreflow@localhost}
+
+x-backend-base: &backend-base
+  build:
+    context: ./backend
+    dockerfile: Dockerfile
+    target: dev
+  environment: *backend-env
+  volumes:
+    - ./backend:/app
+    - backend-venv:/app/.venv
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-coreflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-coreflow}
+      POSTGRES_DB: ${POSTGRES_DB:-coreflow}
+      # Deterministic collation regardless of the host locale — otherwise index
+      # ordering can differ between a dev machine and CI.
+      POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-coreflow} -d ${POSTGRES_DB:-coreflow}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --save 60 1
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${OBJECT_STORAGE_ACCESS_KEY:-coreflow}
+      MINIO_ROOT_PASSWORD: ${OBJECT_STORAGE_SECRET_KEY:-coreflow-dev-secret}
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # One-shot: create the bucket, then exit. Keeps bucket setup out of app code.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${OBJECT_STORAGE_ACCESS_KEY:-coreflow} ${OBJECT_STORAGE_SECRET_KEY:-coreflow-dev-secret} &&
+      mc mb --ignore-existing local/${OBJECT_STORAGE_BUCKET:-coreflow} &&
+      echo 'bucket ready'
+      "
+    restart: "no"
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "${MAILPIT_SMTP_PORT:-1025}:1025"
+      - "${MAILPIT_UI_PORT:-8025}:8025"
+    environment:
+      MP_MAX_MESSAGES: 500
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  backend:
+    <<: *backend-base
+    command: >
+      sh -c "
+      python manage.py migrate --noinput &&
+      python manage.py runserver 0.0.0.0:8000
+      "
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+    restart: unless-stopped
+
+  celery-worker:
+    <<: *backend-base
+    command: celery -A config worker --loglevel=info --concurrency=2
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A config inspect ping -d celery@$$HOSTNAME || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy  # wait for migrations before consuming tasks
+    restart: unless-stopped
+
+  celery-beat:
+    <<: *backend-base
+    command: celery -A config beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: dev
+    # dev:docker runs webpack instead of Turbopack: Turbopack's poll watcher
+    # (watchOptions.pollIntervalMs) does not detect any changes on Windows/macOS
+    # bind mounts as of Next 16.2 (vercel/next.js#68255), so with Turbopack the
+    # only way to pick up an edit is restarting the container.
+    command: npm run dev:docker
+    environment:
+      # Browser-facing: must be reachable from the *host*, so it uses the
+      # published port, not the in-network one.
+      NEXT_PUBLIC_API_URL: ${API_URL:-http://localhost:${BACKEND_PORT:-8000}}
+      # Server-side (SSR) calls stay inside the compose network.
+      INTERNAL_API_URL: http://backend:8000
+      NODE_ENV: development
+      # Bind mounts on Windows/macOS don't emit inotify events inside the
+      # container, so the watcher must poll. next.config.ts maps this to
+      # watchOptions.pollIntervalMs (-> webpack watchOptions.poll). Replaces
+      # WATCHPACK_POLLING, which stopped working when Next 16 made Turbopack
+      # the default bundler.
+      WATCH_POLL_INTERVAL_MS: "500"
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    volumes:
+      - ./frontend:/app
+      - frontend-node-modules:/app/node_modules
+      - frontend-next:/app/.next
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+
+  # Production frontend: prebuilt, no per-route compiling — noticeably snappier
+  # than the dev server, but without live reload. Use `make frontend-prod` /
+  # `make frontend-dev` to switch; both publish the same port, so only one of
+  # the two frontend services runs at a time.
+  frontend-prod:
+    profiles: ["prod"]
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: prod
+      args:
+        NEXT_PUBLIC_API_URL: ${API_URL:-http://localhost:${BACKEND_PORT:-8000}}
+    environment:
+      INTERNAL_API_URL: http://backend:8000
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
+  backend-venv:
+  frontend-node-modules:
+  frontend-next:

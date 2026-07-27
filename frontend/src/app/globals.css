@@ -1,0 +1,339 @@
+@import 'tailwindcss';
+
+/* ---------------------------------------------------------------------------
+ * Coreflow design tokens
+ *
+ * Light-first, soft SaaS look (per the reference shots): a gently lavender
+ * canvas, floating white cards with large radii and layered soft shadows,
+ * a violet brand with a subtle gradient, and pastel status tints where the
+ * old theme used saturated fills. Dense but friendly.
+ *
+ * Everything is a token. No component hardcodes a hex value, so re-theming is
+ * a change in one file. The dark theme below overrides the same variables.
+ *
+ * `static` matters: several components resolve tokens at runtime
+ * (`var(--color-status-${tone}-soft)`), which Tailwind's content scan cannot
+ * see — without `static` those variables would be tree-shaken away.
+ * ------------------------------------------------------------------------- */
+
+@theme static {
+  /* --- Surfaces (light, the primary theme) --- */
+  --color-canvas: #f3f4fb; /* app background, soft lavender-gray */
+  --color-surface: #ffffff; /* sidebar, page chrome */
+  --color-panel: #ffffff; /* cards, tables, drawers */
+  --color-panel-raised: #f4f5fb; /* hover / chips / pressed */
+  --color-panel-sunken: #eef0f8; /* wells, code, empty states */
+
+  /* --- Borders: hairlines, deliberately low contrast --- */
+  --color-line: #e8eaf3;
+  --color-line-strong: #d6dae9;
+  --color-line-subtle: #f0f1f8;
+
+  /* --- Text --- */
+  --color-ink: #1b1f36; /* primary — deep navy ink */
+  --color-ink-muted: #5c6382; /* secondary / labels */
+  --color-ink-subtle: #939ab5; /* tertiary / placeholders */
+  --color-ink-inverse: #ffffff;
+
+  /* --- Brand: violet-indigo with a soft gradient accent --- */
+  --color-brand: #6c5ce7;
+  --color-brand-hover: #7d6ef2;
+  --color-brand-active: #5a4bd2;
+  --color-brand-subtle: #eeecfd;
+  --color-brand-ring: #6c5ce740;
+  --gradient-brand: linear-gradient(135deg, #6c5ce7 0%, #9d7bf5 100%);
+
+  /* --- Status palette ---
+   * `-solid` carries the hue (dots, bars, charts, pill text), `-soft` is the
+   * pastel tint behind it. Pills are tinted, never fully saturated: the soft
+   * background and the solid text must read as the same status.
+   */
+  --color-status-todo: #3e6de0;
+  --color-status-todo-soft: #3e6de01a;
+  --color-status-progress: #d98324;
+  --color-status-progress-soft: #f5a5242b;
+  --color-status-review: #8e42e6;
+  --color-status-review-soft: #a855f724;
+  --color-status-done: #189a4e;
+  --color-status-done-soft: #22c55e24;
+  --color-status-stuck: #dc3d3d;
+  --color-status-stuck-soft: #ef444420;
+  --color-status-hold: #64748b;
+  --color-status-hold-soft: #64748b1f;
+
+  /* --- Priority --- */
+  --color-priority-low: #0f97c7;
+  --color-priority-low-soft: #38bdf824;
+  --color-priority-medium: #7c5ce0;
+  --color-priority-medium-soft: #a78bfa26;
+  --color-priority-high: #e2496b;
+  --color-priority-high-soft: #fb718526;
+  --color-priority-urgent: #d92626;
+  --color-priority-urgent-soft: #dc262622;
+
+  /* --- Semantic feedback --- */
+  --color-success: #189a4e;
+  --color-success-soft: #22c55e1c;
+  --color-warning: #d98324;
+  --color-warning-soft: #f5a52426;
+  --color-danger: #dc3d3d;
+  --color-danger-soft: #ef44441c;
+  --color-info: #3e6de0;
+  --color-info-soft: #3e6de018;
+
+  /* --- Group bars (Monday/Plaky-style coloured group headers) --- */
+  --color-group-1: #6c5ce7;
+  --color-group-2: #10b981;
+  --color-group-3: #f59e0b;
+  --color-group-4: #a855f7;
+  --color-group-5: #f43f5e;
+  --color-group-6: #06b6d4;
+  --color-group-7: #ec4899;
+  --color-group-8: #84cc16;
+
+  /* --- Radii: soft and generous, like the reference cards --- */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+
+  /* --- Type: system stack; no webfont round-trip, no CSP exception --- */
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    'Noto Sans', sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+
+  /* Dense scale: information density is a feature here. */
+  --text-2xs: 0.6875rem; /* 11px — table meta, pills */
+  --text-xs: 0.75rem; /* 12px — labels */
+  --text-sm: 0.8125rem; /* 13px — body default in tables */
+  --text-base: 0.875rem; /* 14px — body */
+  --text-lg: 1rem;
+  --text-xl: 1.125rem;
+  --text-2xl: 1.375rem;
+  --text-3xl: 1.75rem;
+
+  /* --- Layout --- */
+  --spacing-sidebar: 15rem;
+  --spacing-sidebar-collapsed: 3.5rem;
+  --spacing-topbar: 3.5rem;
+  --spacing-drawer: 30rem;
+
+  /* Soft, layered, slightly blue-tinted — cards float instead of outline. */
+  --shadow-panel: 0 1px 2px rgb(23 26 74 / 0.04), 0 6px 20px rgb(23 26 74 / 0.05);
+  --shadow-popover: 0 4px 10px rgb(23 26 74 / 0.06), 0 16px 40px rgb(23 26 74 / 0.16);
+  --shadow-drawer: -12px 0 40px rgb(23 26 74 / 0.14);
+}
+
+/* ---------------------------------------------------------------------------
+ * Dark theme.
+ *
+ * The original navy world, harmonised with the new violet brand and the softer
+ * geometry. Applied via <html data-theme="dark">; the toggle lives in the
+ * topbar user menu.
+ * ------------------------------------------------------------------------- */
+[data-theme='dark'] {
+  --color-canvas: #0a0d1c;
+  --color-surface: #10142a;
+  --color-panel: #151a34;
+  --color-panel-raised: #1d2344;
+  --color-panel-sunken: #0c1022;
+
+  --color-line: #242b4d;
+  --color-line-strong: #35406b;
+  --color-line-subtle: #1b2140;
+
+  --color-ink: #eef1fb;
+  --color-ink-muted: #9aa4c7;
+  --color-ink-subtle: #6b769c;
+  --color-ink-inverse: #0a0d1c;
+
+  --color-brand: #7d6ef2;
+  --color-brand-hover: #8d80f5;
+  --color-brand-active: #6c5ce7;
+  --color-brand-subtle: #232052;
+  --color-brand-ring: #7d6ef259;
+  --gradient-brand: linear-gradient(135deg, #7d6ef2 0%, #a78bfa 100%);
+
+  /* Brighter status hues: tinted pills need luminous text on dark wells. */
+  --color-status-todo: #6f9bff;
+  --color-status-todo-soft: #3f8cff24;
+  --color-status-progress: #f5a524;
+  --color-status-progress-soft: #f5a52424;
+  --color-status-review: #bf7af7;
+  --color-status-review-soft: #a855f724;
+  --color-status-done: #34d374;
+  --color-status-done-soft: #22c55e24;
+  --color-status-stuck: #f87171;
+  --color-status-stuck-soft: #ef444424;
+  --color-status-hold: #94a3b8;
+  --color-status-hold-soft: #64748b2e;
+
+  --color-priority-low: #38bdf8;
+  --color-priority-low-soft: #38bdf826;
+  --color-priority-medium: #a78bfa;
+  --color-priority-medium-soft: #a78bfa26;
+  --color-priority-high: #fb7185;
+  --color-priority-high-soft: #fb718526;
+  --color-priority-urgent: #f14e4e;
+  --color-priority-urgent-soft: #dc262633;
+
+  --color-success: #34d374;
+  --color-success-soft: #22c55e21;
+  --color-warning: #f5a524;
+  --color-warning-soft: #f5a52421;
+  --color-danger: #f87171;
+  --color-danger-soft: #ef444421;
+  --color-info: #6f9bff;
+  --color-info-soft: #3f8cff21;
+
+  --shadow-panel: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.28);
+  --shadow-popover: 0 8px 30px rgb(0 0 0 / 0.55);
+  --shadow-drawer: -8px 0 30px rgb(0 0 0 / 0.45);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-line);
+  }
+
+  html {
+    color-scheme: light;
+    /* Prevent layout shift when a scrollbar appears/disappears between routes. */
+    scrollbar-gutter: stable;
+  }
+
+  html[data-theme='dark'] {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Visible, consistent focus. Never remove the ring — keyboard users need it. */
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+    border-radius: var(--radius-xs);
+  }
+
+  ::selection {
+    background-color: var(--color-brand);
+    color: white;
+  }
+
+  /* Scrollbars styled to match the soft chrome rather than the OS default. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-line-strong);
+    border-radius: 5px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-ink-subtle);
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  /* Firefox */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line-strong) transparent;
+  }
+}
+
+@layer utilities {
+  /* Table/board rows are dense; this keeps numeric columns aligned. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Brand gradient surface (logo tile, primary CTAs, login hero). */
+  .bg-brand-gradient {
+    background-image: var(--gradient-brand);
+  }
+
+  /* Side-drawer enter/exit — no tailwindcss-animate plugin, so the keyframes
+     are ours. `forwards` on the exit keeps the panel off-screen until unmount. */
+  .animate-drawer-in {
+    animation: drawer-slide-in 240ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .animate-drawer-out {
+    animation: drawer-slide-out 200ms cubic-bezier(0.4, 0, 1, 1) forwards;
+  }
+  .animate-overlay-in {
+    animation: overlay-fade-in 240ms ease-out;
+  }
+  .animate-overlay-out {
+    animation: overlay-fade-out 200ms ease-in forwards;
+  }
+}
+
+@keyframes drawer-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes drawer-slide-out {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+@keyframes overlay-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes overlay-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

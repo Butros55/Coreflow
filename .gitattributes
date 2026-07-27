@@ -1,0 +1,35 @@
+# Normalise line endings. The repo stores LF; Windows checkouts may use CRLF for
+# native files, but anything executed inside a Linux container MUST stay LF —
+# a CRLF shebang or Makefile recipe fails with an opaque "not found" error.
+* text=auto eol=lf
+
+# Explicitly LF: these run inside containers.
+*.sh          text eol=lf
+*.py          text eol=lf
+Makefile      text eol=lf
+Dockerfile    text eol=lf
+*.dockerfile  text eol=lf
+*.yml         text eol=lf
+*.yaml        text eol=lf
+.env.example  text eol=lf
+
+# Windows-native tooling.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary — never touch.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.webp binary
+*.pdf  binary
+*.woff binary
+*.woff2 binary
+*.dump binary
+
+# Lockfiles: generated, collapse them in reviews.
+uv.lock           linguist-generated=true -diff
+package-lock.json linguist-generated=true -diff
